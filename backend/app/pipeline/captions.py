@@ -23,40 +23,118 @@ FONT_FILES = {
 
 PRESETS: dict[str, dict[str, Any]] = {
     "clean_minimal": {
-        "label": "Clean Minimal", "font": "Poppins Medium", "size": 58, "color": "#FFFFFF",
-        "highlight": "#FFFFFF", "outline": 0, "outline_color": "#000000", "shadow": 0,
-        "box": True, "box_color": "#000000", "box_opacity": 0.55, "uppercase": False, "max_words": 6,
-        "position": "bottom", "animation": "none", "emphasis": False, "emphasis_color": "#C4B5FD",
+        "label": "Clean Minimal",
+        "font": "Poppins Medium",
+        "size": 58,
+        "color": "#FFFFFF",
+        "highlight": "#FFFFFF",
+        "outline": 0,
+        "outline_color": "#000000",
+        "shadow": 0,
+        "box": True,
+        "box_color": "#000000",
+        "box_opacity": 0.55,
+        "uppercase": False,
+        "max_words": 6,
+        "position": "bottom",
+        "animation": "none",
+        "emphasis": False,
+        "emphasis_color": "#C4B5FD",
     },
     "bold_creator": {
-        "label": "Bold Creator", "font": "Poppins ExtraBold", "size": 84, "color": "#FFFFFF",
-        "highlight": "#FFE14D", "outline": 6, "outline_color": "#000000", "shadow": 2,
-        "box": False, "box_color": "#000000", "box_opacity": 0.0, "uppercase": True, "max_words": 3,
-        "position": "middle", "animation": "pop", "emphasis": True, "emphasis_color": "#FFE14D",
+        "label": "Bold Creator",
+        "font": "Poppins ExtraBold",
+        "size": 90,
+        "color": "#FFFFFF",
+        "highlight": "#FFE14D",
+        "outline": 6,
+        "outline_color": "#000000",
+        "shadow": 2,
+        "box": False,
+        "box_color": "#000000",
+        "box_opacity": 0.0,
+        "uppercase": True,
+        "max_words": 3,
+        "position": "lower",
+        "animation": "pop",
+        "emphasis": True,
+        "emphasis_color": "#FFE14D",
     },
     "gaming_energy": {
-        "label": "Gaming Energy", "font": "Bangers", "size": 104, "color": "#FFFFFF",
-        "highlight": "#7CFF4F", "outline": 7, "outline_color": "#0B0B12", "shadow": 3,
-        "box": False, "box_color": "#000000", "box_opacity": 0.0, "uppercase": True, "max_words": 2,
-        "position": "middle", "animation": "pop", "emphasis": True, "emphasis_color": "#FF4FD8",
+        "label": "Gaming Energy",
+        "font": "Bangers",
+        "size": 104,
+        "color": "#FFFFFF",
+        "highlight": "#7CFF4F",
+        "outline": 7,
+        "outline_color": "#0B0B12",
+        "shadow": 3,
+        "box": False,
+        "box_color": "#000000",
+        "box_opacity": 0.0,
+        "uppercase": True,
+        "max_words": 2,
+        "position": "lower",
+        "animation": "pop",
+        "emphasis": True,
+        "emphasis_color": "#FF4FD8",
     },
     "podcast": {
-        "label": "Podcast", "font": "Poppins SemiBold", "size": 66, "color": "#FFFFFF",
-        "highlight": "#A78BFA", "outline": 4, "outline_color": "#111111", "shadow": 0,
-        "box": False, "box_color": "#000000", "box_opacity": 0.0, "uppercase": False, "max_words": 4,
-        "position": "lower", "animation": "highlight", "emphasis": False, "emphasis_color": "#A78BFA",
+        "label": "Podcast",
+        "font": "Poppins SemiBold",
+        "size": 66,
+        "color": "#FFFFFF",
+        "highlight": "#A78BFA",
+        "outline": 4,
+        "outline_color": "#111111",
+        "shadow": 0,
+        "box": False,
+        "box_color": "#000000",
+        "box_opacity": 0.0,
+        "uppercase": False,
+        "max_words": 4,
+        "position": "lower",
+        "animation": "highlight",
+        "emphasis": False,
+        "emphasis_color": "#A78BFA",
     },
     "cinematic": {
-        "label": "Cinematic", "font": "DM Serif Display", "size": 64, "color": "#F5EBDD",
-        "highlight": "#F5EBDD", "outline": 0, "outline_color": "#000000", "shadow": 3,
-        "box": False, "box_color": "#000000", "box_opacity": 0.0, "uppercase": False, "max_words": 7,
-        "position": "bottom", "animation": "fade", "emphasis": False, "emphasis_color": "#E8C07D",
+        "label": "Cinematic",
+        "font": "DM Serif Display",
+        "size": 64,
+        "color": "#F5EBDD",
+        "highlight": "#F5EBDD",
+        "outline": 0,
+        "outline_color": "#000000",
+        "shadow": 3,
+        "box": False,
+        "box_color": "#000000",
+        "box_opacity": 0.0,
+        "uppercase": False,
+        "max_words": 7,
+        "position": "bottom",
+        "animation": "fade",
+        "emphasis": False,
+        "emphasis_color": "#E8C07D",
     },
     "karaoke": {
-        "label": "Karaoke Highlight", "font": "Poppins ExtraBold", "size": 76, "color": "#FFFFFF",
-        "highlight": "#22D3EE", "outline": 5, "outline_color": "#000000", "shadow": 0,
-        "box": False, "box_color": "#000000", "box_opacity": 0.0, "uppercase": True, "max_words": 4,
-        "position": "middle", "animation": "karaoke", "emphasis": False, "emphasis_color": "#22D3EE",
+        "label": "Karaoke Highlight",
+        "font": "Poppins ExtraBold",
+        "size": 76,
+        "color": "#FFFFFF",
+        "highlight": "#22D3EE",
+        "outline": 5,
+        "outline_color": "#000000",
+        "shadow": 0,
+        "box": False,
+        "box_color": "#000000",
+        "box_opacity": 0.0,
+        "uppercase": True,
+        "max_words": 4,
+        "position": "lower",
+        "animation": "karaoke",
+        "emphasis": False,
+        "emphasis_color": "#22D3EE",
     },
 }
 
@@ -84,8 +162,14 @@ def chunk_words(words: list[dict], max_words: int = 3, max_chars: int = 28, max_
 
     def flush() -> None:
         if cur:
-            chunks.append({"s": cur[0]["s"], "e": cur[-1]["e"], "text": " ".join(x["w"] for x in cur),
-                           "words": [dict(x) for x in cur]})
+            chunks.append(
+                {
+                    "s": cur[0]["s"],
+                    "e": cur[-1]["e"],
+                    "text": " ".join(x["w"] for x in cur),
+                    "words": [dict(x) for x in cur],
+                }
+            )
             cur.clear()
 
     for w in words:
@@ -143,14 +227,26 @@ def _esc(text: str) -> str:
     return text.replace("\\", "\\\\").replace("{", "(").replace("}", ")").replace("\n", " ")
 
 
-def build_ass(width: int, height: int, chunks: list[dict], style: dict[str, Any] | None,
-              overlays: list[dict] | None = None, keywords: set[str] | None = None,
-              duration: float | None = None) -> str:
+def build_ass(
+    width: int,
+    height: int,
+    chunks: list[dict],
+    style: dict[str, Any] | None,
+    overlays: list[dict] | None = None,
+    keywords: set[str] | None = None,
+    duration: float | None = None,
+) -> str:
     """Return a complete ASS document. ``style`` None disables captions (overlays only)."""
     k = width / 1080
     lines = [
-        "[Script Info]", "ScriptType: v4.00+", f"PlayResX: {width}", f"PlayResY: {height}",
-        "WrapStyle: 0", "ScaledBorderAndShadow: yes", "YCbCr Matrix: TV.709", "",
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        f"PlayResX: {width}",
+        f"PlayResY: {height}",
+        "WrapStyle: 0",
+        "ScaledBorderAndShadow: yes",
+        "YCbCr Matrix: TV.709",
+        "",
         "[V4+ Styles]",
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, "
         "Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, "
@@ -166,18 +262,24 @@ def build_ass(width: int, height: int, chunks: list[dict], style: dict[str, Any]
         else:
             primary, secondary = ass_color(style["color"]), ass_color(style["highlight"])
         border_style = 3 if style["box"] else 1
-        outline = (max(6, int(size * 0.18)) if style["box"] else style["outline"] * k)
+        outline = max(6, int(size * 0.18)) if style["box"] else style["outline"] * k
         back = ass_color(style["box_color"], style["box_opacity"]) if style["box"] else ass_color("#000000", 0.6)
-        out_col = ass_color(style["box_color"], style["box_opacity"]) if style["box"] else ass_color(style["outline_color"])
+        out_col = (
+            ass_color(style["box_color"], style["box_opacity"]) if style["box"] else ass_color(style["outline_color"])
+        )
         lines.append(
             f"Style: Cap,{style['font']},{size},{primary},{secondary},{out_col},{back},0,0,0,0,100,100,0,0,"
             f"{border_style},{outline:.1f},{style['shadow'] * k:.1f},{align},{int(70 * k)},{int(70 * k)},{margin_v},1"
         )
         events += _caption_events(chunks, style, keywords or set())
-    lines.append(f"Style: Over,Poppins ExtraBold,{int(58 * k)},&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,0,0,0,0,"
-                 f"100,100,0,0,3,{14 * k:.1f},0,8,{int(80 * k)},{int(80 * k)},{int(height * 0.07)},1")
-    lines.append(f"Style: Mark,Poppins SemiBold,{int(34 * k)},&H59FFFFFF,&H59FFFFFF,&H80000000,&H00000000,0,0,0,0,"
-                 f"100,100,0,0,1,{1.5 * k:.1f},0,9,{int(40 * k)},{int(40 * k)},{int(40 * k)},1")
+    lines.append(
+        f"Style: Over,Poppins ExtraBold,{int(64 * k)},&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,0,0,0,0,"
+        f"100,100,0,0,3,{14 * k:.1f},0,8,{int(80 * k)},{int(80 * k)},{int(height * 0.07)},1"
+    )
+    lines.append(
+        f"Style: Mark,Poppins SemiBold,{int(34 * k)},&H59FFFFFF,&H59FFFFFF,&H80000000,&H00000000,0,0,0,0,"
+        f"100,100,0,0,1,{1.5 * k:.1f},0,9,{int(40 * k)},{int(40 * k)},{int(40 * k)},1"
+    )
     for ov in overlays or []:
         text = _esc(str(ov.get("text", "")).strip())
         if not text:

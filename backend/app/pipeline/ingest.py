@@ -28,7 +28,10 @@ from .ffmpeg import MediaError
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
 
 PLATFORMS: dict[str, tuple[tuple[str, ...], str | None]] = {
-    "youtube": (("youtube.com", "youtu.be", "youtube-nocookie.com"), "https://www.youtube.com/oembed?format=json&url={url}"),
+    "youtube": (
+        ("youtube.com", "youtu.be", "youtube-nocookie.com"),
+        "https://www.youtube.com/oembed?format=json&url={url}",
+    ),
     "vimeo": (("vimeo.com",), "https://vimeo.com/api/oembed.json?url={url}"),
     "tiktok": (("tiktok.com",), "https://www.tiktok.com/oembed?url={url}"),
     "instagram": (("instagram.com",), None),
@@ -37,7 +40,11 @@ PLATFORMS: dict[str, tuple[tuple[str, ...], str | None]] = {
     "facebook": (("facebook.com", "fb.watch"), None),
 }
 
-_UA = "HypeSiftAI/1.0 (+self-hosted video repurposing tool)"
+
+def _ua() -> str:
+    from ..config import get_settings
+
+    return get_settings().http_user_agent
 
 
 @dataclass
@@ -87,7 +94,7 @@ def inspect_url(url: str, client: httpx.Client | None = None) -> UrlInfo:
     url = normalize(url)
     host = (urlparse(url).hostname or "").lower()
     own = client is None
-    client = client or httpx.Client(timeout=15, follow_redirects=True, headers={"User-Agent": _UA})
+    client = client or httpx.Client(timeout=15, follow_redirects=True, headers={"User-Agent": _ua()})
     try:
         for name, (domains, oembed) in PLATFORMS.items():
             if _host_matches(host, domains):
@@ -130,8 +137,13 @@ def _direct_info(url: str, client: httpx.Client) -> UrlInfo:
             r = client.get(url, headers={"Range": "bytes=0-0"})
     except httpx.HTTPError as e:
         raise MediaError(f"The link could not be reached ({type(e).__name__}).") from e
-    if r.status_code in (401, 403):
-        raise MediaError("The link requires a login or is restricted, so it can't be imported.")
+    if r.status_code == 401:
+        raise MediaError("The link requires a login, so it can't be imported.")
+    if r.status_code == 403:
+        raise MediaError(
+            "The server refused access (HTTP 403). The file may be private or the host may block "
+            "automated downloads — upload the file instead."
+        )
     if r.status_code == 404:
         raise MediaError("Nothing was found at that link (404).")
     if r.status_code >= 400:
@@ -141,7 +153,9 @@ def _direct_info(url: str, client: httpx.Client) -> UrlInfo:
     if r.status_code == 206 and "content-range" in r.headers:
         size = r.headers["content-range"].split("/")[-1]
     ext = Path(urlparse(str(r.url)).path).suffix.lower()
-    is_video = ctype.startswith("video/") or (ctype in ("application/octet-stream", "binary/octet-stream", "") and ext in VIDEO_EXTS)
+    is_video = ctype.startswith("video/") or (
+        ctype in ("application/octet-stream", "binary/octet-stream", "") and ext in VIDEO_EXTS
+    )
     if not is_video:
         if ctype.startswith("text/html"):
             raise MediaError(
@@ -157,29 +171,34 @@ def _direct_info(url: str, client: httpx.Client) -> UrlInfo:
     return info
 
 
-def download(url: str, dst: Path, max_bytes: int, on_progress: Callable[[float], None] | None = None,
-             should_cancel: Callable[[], bool] | None = None) -> None:
+def download(
+    url: str,
+    dst: Path,
+    max_bytes: int,
+    on_progress: Callable[[float], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
+) -> None:
     url = normalize(url)
     assert_public_host(urlparse(url).hostname or "")
-    with httpx.Client(timeout=httpx.Timeout(30, read=120), follow_redirects=True, headers={"User-Agent": _UA}) as c:
-        with c.stream("GET", url) as r:
-            if r.status_code >= 400:
-                raise MediaError(f"Download failed with HTTP {r.status_code}.")
-            # Re-check the final host after redirects.
-            assert_public_host(r.url.host)
-            total = int(r.headers.get("content-length") or 0)
-            if total and total > max_bytes:
-                raise MediaError(f"The file is larger than the {max_bytes // 2**20} MB limit.")
-            got = 0
-            with open(dst, "wb") as f:
-                for chunk in r.iter_bytes(1 << 20):
-                    got += len(chunk)
-                    if got > max_bytes:
-                        raise MediaError(f"The file is larger than the {max_bytes // 2**20} MB limit.")
-                    f.write(chunk)
-                    if on_progress and total:
-                        on_progress(got / total)
-                    if should_cancel and should_cancel():
-                        from .ffmpeg import Cancelled
+    from .ffmpeg import Cancelled
 
-                        raise Cancelled("cancelled")
+    too_big = f"The file is larger than the {max_bytes // 2**20} MB limit."
+    client = httpx.Client(timeout=httpx.Timeout(30, read=120), follow_redirects=True, headers={"User-Agent": _ua()})
+    with client as c, c.stream("GET", url) as r:
+        if r.status_code >= 400:
+            raise MediaError(f"Download failed with HTTP {r.status_code}.")
+        assert_public_host(r.url.host)  # re-check the final host after redirects
+        total = int(r.headers.get("content-length") or 0)
+        if total > max_bytes:
+            raise MediaError(too_big)
+        got = 0
+        with open(dst, "wb") as f:
+            for chunk in r.iter_bytes(1 << 20):
+                got += len(chunk)
+                if got > max_bytes:
+                    raise MediaError(too_big)
+                f.write(chunk)
+                if on_progress and total:
+                    on_progress(got / total)
+                if should_cancel and should_cancel():
+                    raise Cancelled("cancelled")

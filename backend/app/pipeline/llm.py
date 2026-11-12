@@ -32,8 +32,11 @@ def status(force: bool = False) -> dict:
         r = httpx.get(f"{s.ollama_url}/api/tags", timeout=2.5)
         names = [m.get("name", "") for m in r.json().get("models", [])]
         ok = any(n == s.ollama_model or n.split(":")[0] == s.ollama_model for n in names)
-        out = {"available": ok, "model": s.ollama_model,
-               "reason": "" if ok else f"Model '{s.ollama_model}' is not pulled (run: ollama pull {s.ollama_model})"}
+        out = {
+            "available": ok,
+            "model": s.ollama_model,
+            "reason": "" if ok else f"Model '{s.ollama_model}' is not pulled (run: ollama pull {s.ollama_model})",
+        }
     except (httpx.HTTPError, ValueError):
         out = {"available": False, "model": s.ollama_model, "reason": "Ollama is not running"}
     _status_cache = (time.time(), out)
@@ -82,15 +85,21 @@ RANK_SYSTEM = (
 )
 
 
+def _rating(row: dict, key: str) -> float:
+    """A 0-10 rating from the model, clamped; missing/garbled values count as neutral."""
+    try:
+        return max(0.0, min(10.0, float(row.get(key, 5))))
+    except (TypeError, ValueError):
+        return 5.0
+
+
 def semantic_rank(cands, ctx, batch: int = 5) -> None:
     """Fill ``semantic`` (0-100), ``title`` and ``llm_note`` on each candidate in place."""
     if not status()["available"]:
         return
     for i in range(0, len(cands), batch):
         group = cands[i : i + batch]
-        items = "\n\n".join(
-            f"[{n}] ({c.duration:.0f}s) {c.text[:1100]}" for n, c in enumerate(group)
-        )
+        items = "\n\n".join(f"[{n}] ({c.duration:.0f}s) {c.text[:1100]}" for n, c in enumerate(group))
         user = (
             f"Content type: {ctx.genre}. Requested mood: {ctx.prefs.mood}.\n"
             f"Rate each excerpt. For each return: id, hook (0-10: do the first seconds grab attention), "
@@ -112,15 +121,13 @@ def semantic_rank(cands, ctx, batch: int = 5) -> None:
             except (TypeError, ValueError, IndexError):
                 continue
 
-            def num(k: str) -> float:
-                try:
-                    return max(0.0, min(10.0, float(row.get(k, 5))))
-                except (TypeError, ValueError):
-                    return 5.0
-
             mood_w = 0.15 if ctx.prefs.mood not in ("any", "") else 0.0
-            sem = (0.32 - mood_w / 3) * num("hook") + (0.34 - mood_w / 3) * num("payoff") + \
-                  (0.34 - mood_w / 3) * num("standalone") + mood_w * num("mood_fit")
+            sem = (
+                (0.32 - mood_w / 3) * _rating(row, "hook")
+                + (0.34 - mood_w / 3) * _rating(row, "payoff")
+                + (0.34 - mood_w / 3) * _rating(row, "standalone")
+                + mood_w * _rating(row, "mood_fit")
+            )
             c.semantic = round(sem * 10, 1)
             c.dims["semantic"] = c.semantic
             t = str(row.get("title") or "").strip().strip('"')

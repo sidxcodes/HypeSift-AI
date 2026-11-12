@@ -31,9 +31,9 @@ GENRE_TAGS = {
 
 PLATFORM_RULES = {
     "youtube": "YouTube Shorts: 3 title options under 70 chars, a 2-3 sentence description, 5-8 search terms, "
-               "3-6 hashtags including #Shorts, and one pinned-comment idea that invites discussion.",
+    "3-6 hashtags including #Shorts, and one pinned-comment idea that invites discussion.",
     "instagram": "Instagram Reels: an engaging caption (2-4 short lines), a call to action, 8-15 relevant "
-                 "hashtags, and one alternate caption in a different tone.",
+    "hashtags, and one alternate caption in a different tone.",
     "tiktok": "TikTok: a concise hook-style description under 150 chars and 3-6 relevant hashtags.",
     "linkedin": "LinkedIn: a professional 3-5 sentence post with a takeaway and 2-4 hashtags; no slang.",
     "facebook": "Facebook: a friendly 2-3 sentence post with a question to spark comments and 1-3 hashtags.",
@@ -52,7 +52,8 @@ def keyphrases(text: str, k: int = 6) -> list[str]:
     low = [w.lower().strip("'") for w in words]
     uni = Counter(w for w in low if w not in STOPWORDS and len(w) > 3)
     bi = Counter(
-        f"{a} {b}" for a, b in zip(low, low[1:], strict=False)
+        f"{a} {b}"
+        for a, b in zip(low, low[1:], strict=False)
         if a not in STOPWORDS and b not in STOPWORDS and len(a) > 2 and len(b) > 2
     )
     phrases = [p for p, c in bi.most_common(k) if c > 1] + [w for w, _ in uni.most_common(k * 2)]
@@ -87,20 +88,30 @@ def template_package(title: str, hook: str, text: str, genre: str, platforms: li
     for p in platforms:
         if p == "youtube":
             out[p] = {
-                "titles": list(dict.fromkeys([title[:70], f"{topic.title()}: {quote}"[:70], quote[:70]])),
+                "titles": list(
+                    dict.fromkeys(
+                        [title[:70], quote[:70]] + ([f"{topic.title()}, in under a minute"] if " " in topic else [])
+                    )
+                ),
                 "description": f"{quote}. {('A short clip about ' + ', '.join(kp[:3]) + '.') if kp else ''}".strip(),
                 "search_terms": kp[:6],
                 "hashtags": (["#Shorts"] + tags)[:6],
                 "pinned_comment": f"What do you think about {topic}?",
             }
         elif p == "instagram":
-            out[p] = {"caption": f"“{quote}”\n\n{cta}", "cta": cta, "hashtags": (tags + ["#reels"])[:12],
-                      "alt_caption": f"{topic.title()} in under a minute. {cta}"}
+            out[p] = {
+                "caption": f"“{quote}”\n\n{cta}",
+                "cta": cta,
+                "hashtags": (tags + ["#reels"])[:12],
+                "alt_caption": f"{topic.title()} in under a minute. {cta}",
+            }
         elif p == "tiktok":
             out[p] = {"description": f"{quote[:120]}", "hashtags": (tags + ["#fyp"])[:5]}
         elif p == "linkedin":
-            out[p] = {"post": f"{quote}.\n\nA short takeaway on {', '.join(kp[:2]) or topic}. {cta}",
-                      "hashtags": tags[:3]}
+            out[p] = {
+                "post": f"{quote}.\n\nA short takeaway on {', '.join(kp[:2]) or topic}. {cta}",
+                "hashtags": tags[:3],
+            }
         elif p == "facebook":
             out[p] = {"post": f"{quote}. {cta}", "hashtags": tags[:2]}
         elif p == "x":
@@ -112,8 +123,13 @@ def template_package(title: str, hook: str, text: str, genre: str, platforms: li
 def llm_package(title: str, text: str, genre: str, platforms: list[str], tone: str) -> dict:
     rules = "\n".join(f"- {PLATFORM_RULES[p]}" for p in platforms)
     schema = {
-        "youtube": {"titles": ["..."], "description": "...", "search_terms": ["..."], "hashtags": ["#Shorts"],
-                    "pinned_comment": "..."},
+        "youtube": {
+            "titles": ["..."],
+            "description": "...",
+            "search_terms": ["..."],
+            "hashtags": ["#Shorts"],
+            "pinned_comment": "...",
+        },
         "instagram": {"caption": "...", "cta": "...", "hashtags": ["#..."], "alt_caption": "..."},
         "tiktok": {"description": "...", "hashtags": ["#..."]},
         "linkedin": {"post": "...", "hashtags": ["#..."]},
@@ -122,7 +138,7 @@ def llm_package(title: str, text: str, genre: str, platforms: list[str], tone: s
     }
     user = (
         f"Tone: {tone} (stay truthful). Content type: {genre}. Working title: {title}\n"
-        f"Transcript of the clip:\n\"\"\"{text[:2500]}\"\"\"\n\nProduce:\n{rules}\n\n"
+        f'Transcript of the clip:\n"""{text[:2500]}"""\n\nProduce:\n{rules}\n\n'
         f"Return JSON with exactly these keys: {{{', '.join(repr(p) for p in platforms)}}} shaped like "
         f"{ {p: schema[p] for p in platforms} }"
     )
@@ -141,8 +157,15 @@ def llm_package(title: str, text: str, genre: str, platforms: list[str], tone: s
     return {"engine": llm.engine_label(), "tone": tone, "platforms": cleaned}
 
 
-def generate(title: str, hook: str, text: str, genre: str, platforms: list[str] | None = None,
-             tone: str = "compelling", allow_llm: bool = True) -> dict:
+def generate(
+    title: str,
+    hook: str,
+    text: str,
+    genre: str,
+    platforms: list[str] | None = None,
+    tone: str = "compelling",
+    allow_llm: bool = True,
+) -> dict:
     platforms = [p for p in (platforms or PLATFORMS) if p in PLATFORMS]
     tone = tone if tone in TONES else "compelling"
     fallback = template_package(title, hook, text, genre, platforms, tone)

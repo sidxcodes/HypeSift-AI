@@ -51,9 +51,22 @@ class Signals:
         return (float(np.percentile(w, 95)) - mu) / sd if w.size else 0.0
 
     def loudness_range(self, start: float, end: float) -> float:
+        """Dynamic range of the window relative to the typical range of 20 s windows
+        across the video (1.0 = typical, >1.2 = unusually varied delivery)."""
         w = self._slice(self.loudness, start, end, 1 / AUDIO_HOP)
-        w = w[w > -50]
-        return float(np.percentile(w, 90) - np.percentile(w, 10)) if w.size > 5 else 0.0
+        w = w[w > -45]
+        if w.size <= 5:
+            return 0.0
+        local = float(np.percentile(w, 90) - np.percentile(w, 10))
+        if not hasattr(self, "_typ_range"):
+            ranges = []
+            for s in np.arange(0, max(self.duration - 20, 1), 10):
+                x = self._slice(self.loudness, s, s + 20, 1 / AUDIO_HOP)
+                x = x[x > -45]
+                if x.size > 20:
+                    ranges.append(np.percentile(x, 90) - np.percentile(x, 10))
+            self._typ_range = float(np.median(ranges)) if ranges else local or 1.0
+        return local / (self._typ_range or 1.0)
 
     def noisy_burst_seconds(self, start: float, end: float) -> float:
         """Seconds of loud, noise-like sound (applause / cheering / laughter proxy)."""

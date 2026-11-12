@@ -54,9 +54,7 @@ def ffprobe_bin() -> str:
 
 def run(args: list[str], timeout: float | None = None) -> subprocess.CompletedProcess:
     log.debug("exec %s", " ".join(args[:12]))
-    return subprocess.run(
-        args, capture_output=True, timeout=timeout, creationflags=_NO_WINDOW, check=False
-    )
+    return subprocess.run(args, capture_output=True, timeout=timeout, creationflags=_NO_WINDOW, check=False)
 
 
 @dataclass
@@ -84,7 +82,10 @@ def probe(path: Path) -> Probe:
         raise MediaError("This file could not be read as a video. It may be corrupt or an unsupported format.")
     info = json.loads(r.stdout or b"{}")
     streams = info.get("streams", [])
-    v = next((s for s in streams if s.get("codec_type") == "video" and not s.get("disposition", {}).get("attached_pic")), None)
+    v = next(
+        (s for s in streams if s.get("codec_type") == "video" and not s.get("disposition", {}).get("attached_pic")),
+        None,
+    )
     a = next((s for s in streams if s.get("codec_type") == "audio"), None)
     if not v:
         raise MediaError("No video stream was found in this file.")
@@ -117,8 +118,25 @@ def probe(path: Path) -> Probe:
 
 
 def extract_audio(src: Path, dst: Path, sample_rate: int = 16000) -> None:
-    r = run([ffmpeg_bin(), "-y", "-v", "error", "-i", str(src), "-vn", "-ac", "1", "-ar", str(sample_rate),
-             "-c:a", "pcm_s16le", str(dst)], timeout=3600)
+    r = run(
+        [
+            ffmpeg_bin(),
+            "-y",
+            "-v",
+            "error",
+            "-i",
+            str(src),
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            str(sample_rate),
+            "-c:a",
+            "pcm_s16le",
+            str(dst),
+        ],
+        timeout=3600,
+    )
     if r.returncode != 0:
         raise MediaError("Audio could not be extracted: " + _tail(r.stderr))
 
@@ -133,8 +151,26 @@ def read_wav_mono(path: Path) -> tuple[np.ndarray, int]:
 
 
 def thumbnail(src: Path, t: float, dst: Path, width: int = 640) -> None:
-    r = run([ffmpeg_bin(), "-y", "-v", "error", "-ss", f"{max(t, 0):.3f}", "-i", str(src), "-frames:v", "1",
-             "-vf", f"scale={width}:-2", "-q:v", "3", str(dst)], timeout=120)
+    r = run(
+        [
+            ffmpeg_bin(),
+            "-y",
+            "-v",
+            "error",
+            "-ss",
+            f"{max(t, 0):.3f}",
+            "-i",
+            str(src),
+            "-frames:v",
+            "1",
+            "-vf",
+            f"scale={width}:-2",
+            "-q:v",
+            "3",
+            str(dst),
+        ],
+        timeout=120,
+    )
     if r.returncode != 0 or not dst.exists():
         raise MediaError("Thumbnail extraction failed: " + _tail(r.stderr))
 
@@ -143,9 +179,27 @@ def read_frames(src: Path, start: float, end: float, fps: float, width: int) -> 
     """Decode a low-res grey frame stack for analysis. Returns (frames[N,H,W], scale)."""
     p = probe(src)
     height = int(round(p.height * width / p.width / 2) * 2)
-    r = run([ffmpeg_bin(), "-v", "error", "-ss", f"{start:.3f}", "-t", f"{max(end - start, 0.1):.3f}",
-             "-i", str(src), "-vf", f"fps={fps},scale={width}:{height}", "-pix_fmt", "gray",
-             "-f", "rawvideo", "-"], timeout=1800)
+    r = run(
+        [
+            ffmpeg_bin(),
+            "-v",
+            "error",
+            "-ss",
+            f"{start:.3f}",
+            "-t",
+            f"{max(end - start, 0.1):.3f}",
+            "-i",
+            str(src),
+            "-vf",
+            f"fps={fps},scale={width}:{height}",
+            "-pix_fmt",
+            "gray",
+            "-f",
+            "rawvideo",
+            "-",
+        ],
+        timeout=1800,
+    )
     if r.returncode != 0:
         raise MediaError("Frame decoding failed: " + _tail(r.stderr))
     frame_size = width * height
@@ -161,8 +215,23 @@ def video_encoder() -> str:
     if pref != "auto":
         return pref
     try:
-        r = run([ffmpeg_bin(), "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=256x256:d=0.2",
-                 "-c:v", "h264_nvenc", "-f", "null", "-"], timeout=30)
+        r = run(
+            [
+                ffmpeg_bin(),
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=256x256:d=0.2",
+                "-c:v",
+                "h264_nvenc",
+                "-f",
+                "null",
+                "-",
+            ],
+            timeout=30,
+        )
         if r.returncode == 0:
             return "h264_nvenc"
     except Exception:  # noqa: BLE001
@@ -192,8 +261,9 @@ def run_with_progress(
 ) -> None:
     """Run ffmpeg, reporting real progress parsed from ``-progress pipe:1``."""
     full = [args[0], "-progress", "pipe:1", "-nostats", *args[1:]]
-    proc = subprocess.Popen(full, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(cwd) if cwd else None,
-                            creationflags=_NO_WINDOW)
+    proc = subprocess.Popen(
+        full, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(cwd) if cwd else None, creationflags=_NO_WINDOW
+    )
     stderr_chunks: list[bytes] = []
 
     import threading

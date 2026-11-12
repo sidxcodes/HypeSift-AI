@@ -67,7 +67,7 @@ def build_sentences(words: list[Word], max_gap: float = 0.85, max_words: int = 4
     for i, w in enumerate(words):
         last = i == len(words) - 1
         gap = (words[i + 1].s - w.e) if not last else 0.0
-        ends = w.w.rstrip('"\')').endswith((".", "?", "!")) or gap > max_gap or (i - start + 1) >= max_words
+        ends = w.w.rstrip("\"')").endswith((".", "?", "!")) or gap > max_gap or (i - start + 1) >= max_words
         if ends or last:
             seg = words[start : i + 1]
             out.append(Sentence(seg[0].s, seg[-1].e, " ".join(x.w for x in seg).strip(), start, i))
@@ -134,31 +134,38 @@ def detect_genre(words: list[Word], signals: Signals) -> tuple[str, dict[str, fl
     """Cheap genre guess from vocabulary, speech density and motion."""
     toks = Counter(tokens(" ".join(w.w for w in words)))
     total = sum(toks.values()) or 1
-    scores = {g: sum(toks[t] for t in hints) / total * 1000 for g, hints in GENRE_HINTS.items()}
+    hits = {g: sum(toks[t] for t in hints) for g, hints in GENRE_HINTS.items()}
+    scores = {g: h / total * 1000 for g, h in hits.items()}
     dur = signals.duration or 1
     wpm = len(words) / dur * 60
     motion = float(np.mean(signals.motion)) if signals.motion.size else 0.0
-    if wpm > 120 and motion < 6:
-        scores["podcast"] = scores.get("podcast", 0) + 3
-    if motion > 10:
-        scores["gaming"] = scores.get("gaming", 0) + 2
-    if wpm < 30:
-        scores["gaming"] = scores.get("gaming", 0) + 2
-        scores["entertainment"] = scores.get("entertainment", 0) + 1.5
+    if motion < 7:  # talking heads and static shots are rarely gameplay
+        scores["gaming"] *= 0.5
     best = max(scores, key=lambda g: scores[g])
-    return (best if scores[best] > 0.5 else "podcast"), {k: round(v, 2) for k, v in scores.items()}
+    # Vocabulary only decides when the evidence is real (several distinct hits).
+    if hits[best] >= 4 and scores[best] >= 6:
+        return best, {k: round(v, 2) for k, v in scores.items()}
+    if wpm >= 60:
+        fallback = "podcast"  # speech-led content: interviews, talks, commentary
+    elif motion > 9:
+        fallback = "gaming"
+    else:
+        fallback = "entertainment"
+    return fallback, {k: round(v, 2) for k, v in scores.items()}
 
 
-def make_context(words: list[Word], signals: Signals, prefs: Prefs, weight_bias: dict[str, float] | None = None) -> Context:
+def make_context(
+    words: list[Word], signals: Signals, prefs: Prefs, weight_bias: dict[str, float] | None = None
+) -> Context:
     sentences = build_sentences(words)
     genre = prefs.genre if prefs.genre in PROFILES else detect_genre(words, signals)[0]
     weights = dict(PROFILES[genre])
     mood_shift = {
-        "funny": {"emotion": .06, "hook": .02, "novelty": -.03, "context": -.03},
-        "emotional": {"emotion": .08, "context": .02, "visual": -.04, "pacing": -.02},
-        "intense": {"emotion": .07, "visual": .04, "context": -.05},
-        "informative": {"novelty": .06, "context": .05, "emotion": -.06},
-        "inspiring": {"emotion": .04, "hook": .03, "novelty": .02, "visual": -.03},
+        "funny": {"emotion": 0.06, "hook": 0.02, "novelty": -0.03, "context": -0.03},
+        "emotional": {"emotion": 0.08, "context": 0.02, "visual": -0.04, "pacing": -0.02},
+        "intense": {"emotion": 0.07, "visual": 0.04, "context": -0.05},
+        "informative": {"novelty": 0.06, "context": 0.05, "emotion": -0.06},
+        "inspiring": {"emotion": 0.04, "hook": 0.03, "novelty": 0.02, "visual": -0.03},
     }.get(prefs.mood, {})
     for k, v in mood_shift.items():
         weights[k] = max(0.01, weights[k] + v)
@@ -176,7 +183,9 @@ def make_context(words: list[Word], signals: Signals, prefs: Prefs, weight_bias:
     idf = {t: math.log((1 + n) / (1 + c)) + 1 for t, c in df.items()}
     vals = np.array(list(idf.values())) if idf else np.array([1.0])
     speech = len(words) >= max(12, signals.duration / 30)
-    return Context(sentences, words, signals, prefs, genre, weights, idf, float(vals.mean()), float(vals.std()) or 1.0, speech)
+    return Context(
+        sentences, words, signals, prefs, genre, weights, idf, float(vals.mean()), float(vals.std()) or 1.0, speech
+    )
 
 
 # --------------------------------------------------------------------------- candidates
@@ -400,7 +409,7 @@ def score(c: Candidate, ctx: Context) -> Candidate:
     if lzw > 0.6:
         ev["emotion"].append(f"Louder than the video average (+{lzw:.1f}σ)")
     lr = sig.loudness_range(c.start, c.end)
-    if lr > 18:
+    if lr > 1.25:
         emo += 6
         ev["emotion"].append("Big swings in vocal intensity")
     burst = sig.noisy_burst_seconds(c.start, c.end)
@@ -449,9 +458,18 @@ def score(c: Candidate, ctx: Context) -> Candidate:
     if sweet_lo <= dur <= sweet_hi:
         rel += 6
 
-    c.dims = {k: round(_clip(v), 1) for k, v in
-              {"hook": hook, "context": ctxs, "pacing": pace, "novelty": nov, "emotion": emo, "visual": vis,
-               "relevance": rel}.items()}
+    c.dims = {
+        k: round(_clip(v), 1)
+        for k, v in {
+            "hook": hook,
+            "context": ctxs,
+            "pacing": pace,
+            "novelty": nov,
+            "emotion": emo,
+            "visual": vis,
+            "relevance": rel,
+        }.items()
+    }
     c.evidence = ev
     raw = sum(ctx.weights[k] * c.dims[k] for k in c.dims)
     c.heuristic = round(_clip(50 + (raw - 50) * 1.6), 1)  # stretch so differences are readable
@@ -484,7 +502,9 @@ def finalize(c: Candidate, ctx: Context) -> Candidate:
 
 def heuristic_title(c: Candidate) -> str:
     base = c.hook or c.text or "Highlight"
-    base = re.sub(r"^(?:(?:so|and|but|um|uh|like|okay|yeah|well)[, ]+)+", "", base, flags=re.I).strip()
+    base = re.sub(
+        r"^(?:(?:so|and|but|um|uh|like|okay|yeah|well|you know|i mean|look|listen|right)[, ]+)+", "", base, flags=re.I
+    ).strip()
     base = base.rstrip(".,;:")
     return _short(base[:1].upper() + base[1:], 70) if base else "Highlight"
 
@@ -517,8 +537,9 @@ def position_filter(cands: list[Candidate], position: str, duration: float) -> l
     return f or cands
 
 
-def discover(words: list[Word], signals: Signals, prefs: Prefs, weight_bias: dict[str, float] | None = None,
-             semantic=None) -> tuple[list[Candidate], Context]:
+def discover(
+    words: list[Word], signals: Signals, prefs: Prefs, weight_bias: dict[str, float] | None = None, semantic=None
+) -> tuple[list[Candidate], Context]:
     """Full ranking. ``semantic`` is an optional callable(list[Candidate], Context) that
     fills ``semantic`` / ``title`` / ``llm_note`` on a shortlist."""
     ctx = make_context(words, signals, prefs, weight_bias)
@@ -528,8 +549,10 @@ def discover(words: list[Word], signals: Signals, prefs: Prefs, weight_bias: dic
     if semantic is not None and shortlist:
         try:
             semantic(shortlist, ctx)
-        except Exception:  # noqa: BLE001 - semantic pass is best-effort
-            pass
+        except Exception:  # noqa: BLE001 - semantic pass is best-effort; heuristic scores stand
+            import logging
+
+            logging.getLogger("hypesift.highlights").exception("semantic re-rank failed; using signal scores")
     final = [finalize(c, ctx) for c in shortlist]
     final = suppress(final, prefs.count)
     final.sort(key=lambda c: -c.score)

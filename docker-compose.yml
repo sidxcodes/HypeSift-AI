@@ -1,0 +1,37 @@
+# docker compose up --build   →  http://localhost:3000
+# Optional local LLM:          docker compose --profile llm up --build
+#                              then: docker compose exec ollama ollama pull gemma3:4b
+services:
+  api:
+    build: ./backend
+    environment:
+      HYPESIFT_SECRET_KEY: ${HYPESIFT_SECRET_KEY:-change-me}
+      HYPESIFT_OLLAMA_URL: http://ollama:11434
+      HYPESIFT_EMBEDDED_WORKER: "false"
+    volumes: [hypesift-data:/data]
+    restart: unless-stopped
+
+  worker:
+    build: ./backend
+    command: ["python", "-m", "app.worker"]
+    environment:
+      HYPESIFT_OLLAMA_URL: http://ollama:11434
+    volumes: [hypesift-data:/data]
+    restart: unless-stopped
+
+  web:
+    build: ./frontend
+    environment:
+      HYPESIFT_API_URL: http://api:8000
+    ports: ["3000:3000"]
+    depends_on: [api]
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    profiles: [llm]
+    volumes: [ollama:/root/.ollama]
+
+volumes:
+  hypesift-data:
+  ollama:

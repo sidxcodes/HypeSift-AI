@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --bg: #fbfaf7;
+  --surface: #ffffff;
+  --surface-2: #f4f2ee;
+  --border: #e7e3dc;
+  --text: #1a1822;
+  --muted: #6b6676;
+  --primary: #7c3aed;
+  --primary-hover: #6d28d9;
+  --primary-soft: #f1eafe;
+  --on-primary: #ffffff;
+  --accent: #0e9fb8;
+  --success: #15803d;
+  --warning: #b45309;
+  --danger: #dc2626;
+  --ring: #a78bfa;
+  --shadow: 0 1px 2px rgb(20 16 30 / 0.05), 0 4px 16px rgb(20 16 30 / 0.05);
+}
+
+.dark {
+  --bg: #0e0e12;
+  --surface: #16161c;
+  --surface-2: #1d1d25;
+  --border: #2a2a35;
+  --text: #ecebf2;
+  --muted: #9a97a8;
+  --primary: #8b5cf6;
+  --primary-hover: #a78bfa;
+  --primary-soft: #241a3d;
+  --on-primary: #ffffff;
+  --accent: #22d3ee;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --ring: #8b5cf6;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.25);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-on-primary: var(--on-primary);
+  --color-accent: var(--accent);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-ring: var(--ring);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display), var(--font-inter), ui-sans-serif, sans-serif;
+  --shadow-card: var(--shadow);
+}
+
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Caption fonts served by the API — the same files libass burns into exports. */
+@font-face { font-family: "HS Poppins Medium"; src: url("/api/fonts/Poppins-Medium.ttf"); font-display: swap; }
+@font-face { font-family: "HS Poppins SemiBold"; src: url("/api/fonts/Poppins-SemiBold.ttf"); font-display: swap; }
+@font-face { font-family: "HS Poppins ExtraBold"; src: url("/api/fonts/Poppins-ExtraBold.ttf"); font-display: swap; }
+@font-face { font-family: "HS Anton"; src: url("/api/fonts/Anton-Regular.ttf"); font-display: swap; }
+@font-face { font-family: "HS Bebas Neue"; src: url("/api/fonts/BebasNeue-Regular.ttf"); font-display: swap; }
+@font-face { font-family: "HS Bangers"; src: url("/api/fonts/Bangers-Regular.ttf"); font-display: swap; }
+@font-face { font-family: "HS DM Serif Display"; src: url("/api/fonts/DMSerifDisplay-Regular.ttf"); font-display: swap; }
+
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite linear;
+}
+@keyframes shimmer {
+  to { background-position: -200% 0; }
+}
+
+input[type="range"] {
+  accent-color: var(--primary);
+}
+
+.scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; }

@@ -90,17 +90,28 @@ def _candidates() -> list[tuple[str, str]]:
     return [gpu] if dev == "cuda" else [gpu, cpu]
 
 
-def transcribe(audio: Path, language: str | None = None, total_seconds: float = 0,
-               on_progress: Callable[[float], None] | None = None,
-               should_cancel: Callable[[], bool] | None = None) -> Transcript:
+def transcribe(
+    audio: Path,
+    language: str | None = None,
+    total_seconds: float = 0,
+    on_progress: Callable[[float], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
+) -> Transcript:
     _add_nvidia_dll_dirs()
     s = get_settings()
     last_err: Exception | None = None
+    # Decode ourselves (16 kHz mono WAV) instead of letting faster-whisper open the file with PyAV:
+    # newer PyAV releases dropped an argument faster-whisper still passes.
+    from .ffmpeg import read_wav_mono
+
+    samples, sr = read_wav_mono(audio)
+    if sr != 16000:
+        raise RuntimeError("expected 16 kHz audio")
     for device, compute in _candidates():
         try:
             model = _load(s.whisper_model, device, compute)
             segments, info = model.transcribe(  # type: ignore[attr-defined]
-                str(audio),
+                samples,
                 language=None if not language or language == "auto" else language,
                 word_timestamps=True,
                 vad_filter=True,

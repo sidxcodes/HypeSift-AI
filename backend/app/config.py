@@ -12,9 +12,7 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="HYPESIFT_", env_file=str(BACKEND_DIR / ".env"), extra="ignore"
-    )
+    model_config = SettingsConfigDict(env_prefix="HYPESIFT_", env_file=str(BACKEND_DIR / ".env"), extra="ignore")
 
     # --- core -------------------------------------------------------------
     env: str = "development"
@@ -38,11 +36,14 @@ class Settings(BaseSettings):
     upload_chunk_mb: int = 8
     temp_file_ttl_hours: int = 24
 
+    # Some hosts (e.g. Wikimedia) reject clients without a descriptive UA that includes a link.
+    http_user_agent: str = "HypeSiftAI/1.0 (self-hosted video tool; +https://github.com/topics/video-editing)"
+
     # --- tools ------------------------------------------------------------
     ffmpeg_bin: str = "ffmpeg"
     ffprobe_bin: str = "ffprobe"
     video_encoder: str = "auto"  # auto | libx264 | h264_nvenc
-    whisper_model: str = "base"
+    whisper_model: str = "small"
     whisper_device: str = "auto"  # auto | cpu | cuda
     whisper_compute_type: str = "auto"
 

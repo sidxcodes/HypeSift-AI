@@ -32,8 +32,12 @@ def _faces(gray: np.ndarray) -> list[tuple[int, int, int, int]]:
         if not f:
             flipped = cv2.flip(g, 1)
             w = g.shape[1]
-            f = [(w - x - fw, y, fw, fh) for (x, y, fw, fh) in
-                 _profile.detectMultiScale(flipped, scaleFactor=1.15, minNeighbors=6, minSize=(min_side, min_side))]
+            f = [
+                (w - x - fw, y, fw, fh)
+                for (x, y, fw, fh) in _profile.detectMultiScale(
+                    flipped, scaleFactor=1.15, minNeighbors=6, minSize=(min_side, min_side)
+                )
+            ]
     return [tuple(int(v) for v in r) for r in f]
 
 
@@ -77,8 +81,14 @@ def analyze(src: Path, start: float, end: float) -> dict:
     cx = _fill(xs)
     cy = _fill(ys)
     path = _operator_path(cx, cy, 1 / SAMPLE_FPS)
-    return {"source": source, "path": path, "face_ratio": round(face_ratio, 2),
-            "split": _split_layout(all_faces), "src_w": W, "src_h": H}
+    return {
+        "source": source,
+        "path": path,
+        "face_ratio": round(face_ratio, 2),
+        "split": _split_layout(all_faces),
+        "src_w": W,
+        "src_h": H,
+    }
 
 
 def _fill(vals: list[float | None]) -> np.ndarray:
@@ -94,7 +104,9 @@ def _fill(vals: list[float | None]) -> np.ndarray:
     return np.array([np.median(pad[i : i + k]) for i in range(len(arr))])
 
 
-def _operator_path(cx: np.ndarray, cy: np.ndarray, dt: float, dead: float = 0.07, pan: float = 0.6) -> list[list[float]]:
+def _operator_path(
+    cx: np.ndarray, cy: np.ndarray, dt: float, dead: float = 0.07, pan: float = 0.6
+) -> list[list[float]]:
     """Keyframes [t, cx, cy] with holds + linear pans (renders as a piecewise-linear crop)."""
     if len(cx) == 0:
         return [[0.0, 0.5, 0.5]]
@@ -133,7 +145,9 @@ def _split_layout(all_faces: list[list[tuple[float, float, float]]]) -> dict | N
         if len(left) == 0 or len(right) == 0:
             return None
         a, b = float(left.mean()), float(right.mean())
-    frames_both = sum(1 for fs in all_faces if any(abs(f[0] - a) < 0.12 for f in fs) and any(abs(f[0] - b) < 0.12 for f in fs))
+    frames_both = sum(
+        1 for fs in all_faces if any(abs(f[0] - a) < 0.12 for f in fs) and any(abs(f[0] - b) < 0.12 for f in fs)
+    )
     if b - a > 0.3 and min(len(left), len(right)) >= len(pts_arr) * 0.25 and frames_both >= len(all_faces) * 0.2:
         return {"left": round(a, 4), "right": round(b, 4)}
     return None

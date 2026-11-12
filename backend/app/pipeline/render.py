@@ -31,8 +31,10 @@ DEFAULT_EDITS: dict[str, Any] = {
 
 
 def merged_edits(edits: dict | None) -> dict:
-    out = {k: (dict(v) if isinstance(v, dict) else (list(v) if isinstance(v, list) else v))
-           for k, v in DEFAULT_EDITS.items()}
+    out = {
+        k: (dict(v) if isinstance(v, dict) else (list(v) if isinstance(v, list) else v))
+        for k, v in DEFAULT_EDITS.items()
+    }
     for k, v in (edits or {}).items():
         if isinstance(v, dict) and isinstance(out.get(k), dict):
             out[k] = {**out[k], **v}
@@ -47,8 +49,15 @@ class Segment:
     e: float
 
 
-def keep_segments(words: list[Word], start: float, end: float, enabled: bool,
-                  max_gap: float = 0.7, lead: float = 0.12, tail: float = 0.18) -> list[Segment]:
+def keep_segments(
+    words: list[Word],
+    start: float,
+    end: float,
+    enabled: bool,
+    max_gap: float = 0.7,
+    lead: float = 0.12,
+    tail: float = 0.18,
+) -> list[Segment]:
     dur = end - start
     if not enabled:
         return [Segment(0.0, dur)]
@@ -82,14 +91,16 @@ def time_mapper(segs: list[Segment]) -> Callable[[float], float | None]:
 
 
 def clip_words(words: list[Word], start: float, end: float) -> list[dict]:
-    return [{"w": w.w, "s": round(w.s - start, 3), "e": round(w.e - start, 3)}
-            for w in words if w.e > start and w.s < end]
+    return [
+        {"w": w.w, "s": round(w.s - start, 3), "e": round(w.e - start, 3)} for w in words if w.e > start and w.s < end
+    ]
 
 
 def default_chunks(words: list[Word], start: float, end: float, preset: str) -> list[dict]:
     style = cap.PRESETS.get(preset, cap.PRESETS["bold_creator"])
-    return cap.chunk_words(clip_words(words, start, end), max_words=style["max_words"],
-                           max_chars=16 * style["max_words"] // 2 + 12)
+    return cap.chunk_words(
+        clip_words(words, start, end), max_words=style["max_words"], max_chars=16 * style["max_words"] // 2 + 12
+    )
 
 
 def _map_chunks(chunks: list[dict], fmap: Callable[[float], float | None]) -> list[dict]:
@@ -99,7 +110,9 @@ def _map_chunks(chunks: list[dict], fmap: Callable[[float], float | None]) -> li
         words = [{**w, "s": fmap(w["s"]), "e": fmap(w["e"])} for w in ch["words"]]
         words = [w for w in words if w["s"] is not None and w["e"] is not None and w["e"] > w["s"] - 1e-6]
         if words:
-            out.append({**ch, "s": fmap(ch["s"]) or words[0]["s"], "e": fmap(ch["e"]) or words[-1]["e"], "words": words})
+            out.append(
+                {**ch, "s": fmap(ch["s"]) or words[0]["s"], "e": fmap(ch["e"]) or words[-1]["e"], "words": words}
+            )
     return out
 
 
@@ -123,12 +136,16 @@ def build_video_chain(probe: ffmpeg.Probe, edits: dict, rf: dict, W: int, H: int
         y = (sh - ch) // 2
         xa = int(min(max(rf["split"]["left"] * sw - cw / 2, 0), sw - cw))
         xb = int(min(max(rf["split"]["right"] * sw - cw / 2, 0), sw - cw))
-        return (f"[0:v]split=2[sa][sb];[sa]crop={cw}:{ch}:{xa}:{y},scale={W}:{half_h}:flags=lanczos[ta];"
-                f"[sb]crop={cw}:{ch}:{xb}:{y},scale={W}:{half_h}:flags=lanczos[tb];[ta][tb]vstack=2,setsar=1[vr]")
+        return (
+            f"[0:v]split=2[sa][sb];[sa]crop={cw}:{ch}:{xa}:{y},scale={W}:{half_h}:flags=lanczos[ta];"
+            f"[sb]crop={cw}:{ch}:{xb}:{y},scale={W}:{half_h}:flags=lanczos[tb];[ta][tb]vstack=2,setsar=1[vr]"
+        )
     if mode == "fit":
-        return (f"[0:v]split=2[bg][fg];[bg]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
-                f"boxblur=24:2,eq=brightness=-0.08[bgb];[fg]scale={W}:{H}:force_original_aspect_ratio=decrease"
-                f":flags=lanczos[fgs];[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1[vr]")
+        return (
+            f"[0:v]split=2[bg][fg];[bg]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
+            f"boxblur=24:2,eq=brightness=-0.08[bgb];[fg]scale={W}:{H}:force_original_aspect_ratio=decrease"
+            f":flags=lanczos[fgs];[bgb][fgs]overlay=(W-w)/2:(H-h)/2,setsar=1[vr]"
+        )
     cw, ch = reframe.crop_box(sw, sh, aspect, zoom)
     if mode == "auto" and rf.get("path"):
         keys = rf["path"]
@@ -245,17 +262,43 @@ def render(
     (work_dir / "graph.txt").write_text(";\n".join(graph), encoding="utf-8")
 
     tmp_out = work_dir / "out.mp4"
-    args = [ffmpeg.ffmpeg_bin(), "-y", "-v", "error", "-ss", f"{start:.3f}", "-t", f"{end - start:.3f}",
-            "-i", str(src), "-/filter_complex", "graph.txt", "-map", "[vout]"]
+    args = [
+        ffmpeg.ffmpeg_bin(),
+        "-y",
+        "-v",
+        "error",
+        "-ss",
+        f"{start:.3f}",
+        "-t",
+        f"{end - start:.3f}",
+        "-i",
+        str(src),
+        "-/filter_complex",
+        "graph.txt",
+        "-map",
+        "[vout]",
+    ]
     if has_a:
         args += ["-map", "[aout]", "-c:a", "aac", "-b:a", "160k"]
-    args += [*ffmpeg.encoder_args(edits["quality"]), "-r", f"{min(probe.fps, 60):.3f}",
-             "-movflags", "+faststart", "out.mp4"]
+    args += [
+        *ffmpeg.encoder_args(edits["quality"]),
+        "-r",
+        f"{min(probe.fps, 60):.3f}",
+        "-movflags",
+        "+faststart",
+        "out.mp4",
+    ]
     ffmpeg.run_with_progress(args, out_dur, on_progress, should_cancel, cwd=work_dir)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(tmp_out), out_path)
-    return {"duration": round(out_dur, 3), "width": W, "height": H, "srt": srt,
-            "segments": [[round(s.s, 3), round(s.e, 3)] for s in segs], "chunks": mapped}
+    return {
+        "duration": round(out_dur, 3),
+        "width": W,
+        "height": H,
+        "srt": srt,
+        "segments": [[round(s.s, 3), round(s.e, 3)] for s in segs],
+        "chunks": mapped,
+    }
 
 
 def cover_time(src: Path, start: float, end: float) -> float:
