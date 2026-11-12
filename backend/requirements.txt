@@ -1,0 +1,10 @@
+fastapi>=0.118,<1
+uvicorn[standard]>=0.37,<1
+pydantic>=2.11,<3
+pydantic-settings>=2.11,<3
+sqlalchemy>=2.0.43,<2.1
+python-multipart>=0.0.20
+httpx>=0.28,<1
+numpy>=2.3,<3
+opencv-python-headless>=4.12,<5
+faster-whisper>=1.2,<2
