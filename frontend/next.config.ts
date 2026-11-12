@@ -8,6 +8,7 @@ const nextConfig: NextConfig = {
     return [{ source: "/api/:path*", destination: `${API}/api/:path*` }];
   },
   experimental: { proxyTimeout: 300_000 },
+  devIndicators: false,
   output: process.env.NEXT_OUTPUT === "standalone" ? "standalone" : undefined,
   distDir: process.env.NEXT_DIST_DIR || ".next",
 };

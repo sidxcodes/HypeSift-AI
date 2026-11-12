@@ -181,7 +181,7 @@ def parse(text: str, has_clip: bool = False) -> dict[str, Any]:
         if color:
             style["highlight"] = COLORS[color]
             style["emphasis_color"] = COLORS[color]
-            if _has(t, [f"{color} text", f"{color} captions", f"{color} subtitles"]) and not _has(t, ["highlight"]):
+            if _has(t, [f"{color} text", f"{color} words", f"{color} font"]) and not _has(t, ["highlight"]):
                 style["color"] = COLORS[color]
         for pos in ("top", "middle", "bottom"):
             if _has(t, [f"at the {pos}", f"to the {pos}", f"{pos} of", pos]):

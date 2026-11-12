@@ -44,8 +44,13 @@ def main() -> None:
     done = c.post(f"/api/uploads/{up['id']}/complete")
     done.raise_for_status()
 
-    settings = {"count": a.count, "min_dur": 15, "max_dur": 45, "caption_preset": a.preset,
-                "platforms": ["youtube", "instagram", "tiktok", "linkedin"]}
+    settings = {
+        "count": a.count,
+        "min_dur": 15,
+        "max_dur": 45,
+        "caption_preset": a.preset,
+        "platforms": ["youtube", "instagram", "tiktok", "linkedin"],
+    }
     p = c.post("/api/projects", json={"upload_id": up["id"], "name": path.stem, "settings": settings}).json()
     print("project", p["id"])
     while True:

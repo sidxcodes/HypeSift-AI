@@ -12,6 +12,14 @@ before you download.
 It runs entirely on free, local tools: FFmpeg, faster-whisper, OpenCV and (optionally) a local LLM through
 Ollama. No paid APIs, no keys.
 
+![Results workspace: ranked, face-tracked vertical clips with captions and the creator assistant](docs/screenshots/results.jpg)
+
+| Browser editor | Publishing package |
+|---|---|
+| ![Editor with live caption preview, trim timeline and style controls](docs/screenshots/editor.jpg) | ![Clip drawer with download buttons and AI-written YouTube titles, description and hashtags](docs/screenshots/publish.jpg) |
+
+*Screenshots are real output: a public-domain VOA interview from Wikimedia Commons, imported by direct link.*
+
 | | |
 |---|---|
 | Frontend | Next.js 15 · React 19 · TypeScript · Tailwind CSS 4 · Motion |
