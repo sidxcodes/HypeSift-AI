@@ -33,6 +33,11 @@ $iconDir = Join-Path $env:LOCALAPPDATA 'HypeSift\icons'
 New-Item -ItemType Directory -Force $iconDir | Out-Null
 $icon = Join-Path $iconDir ('hypesift-{0}.ico' -f (Get-FileHash $iconSrc -Algorithm SHA256).Hash.Substring(0, 10).ToLower())
 if (-not (Test-Path $icon)) { Copy-Item $iconSrc $icon }
+# Tell Explorer exactly which shortcut changed so it redraws just that icon.
+Add-Type -Namespace HypeSift -Name Shell -MemberDefinition @'
+[DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+public static extern void SHChangeNotify(int eventId, uint flags, string item1, System.IntPtr item2);
+'@
 foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Programs'))) {
     $lnk = $shell.CreateShortcut((Join-Path $folder 'HypeSift AI.lnk'))
     $lnk.TargetPath = Join-Path $env:WINDIR 'System32\wscript.exe'
@@ -41,12 +46,9 @@ foreach ($folder in @([Environment]::GetFolderPath('Desktop'), [Environment]::Ge
     $lnk.IconLocation = "$icon,0"
     $lnk.Description = 'HypeSift AI - turn long videos into ready-to-post shorts'
     $lnk.Save()
+    [HypeSift.Shell]::SHChangeNotify(0x00002000, 0x0005, $lnk.FullName, [IntPtr]::Zero)   # SHCNE_UPDATEITEM, SHCNF_PATHW
     Write-Host "Shortcut created: $($lnk.FullName)"
 }
 # Old icon versions are no longer used by any shortcut.
 Get-ChildItem $iconDir -Filter 'hypesift-*.ico' | Where-Object { $_.FullName -ne $icon } | Remove-Item -ErrorAction SilentlyContinue
-# Ask Explorer to redraw icons now instead of after the next sign-in.
-& (Join-Path $env:WINDIR 'System32\ie4uinit.exe') -show
-Add-Type -Namespace HypeSift -Name Shell -MemberDefinition '[DllImport("shell32.dll")] public static extern void SHChangeNotify(int e, uint f, System.IntPtr a, System.IntPtr b);'
-[HypeSift.Shell]::SHChangeNotify(0x08000000, 0, [IntPtr]::Zero, [IntPtr]::Zero)   # SHCNE_ASSOCCHANGED
 Write-Host "Done. Open 'HypeSift AI' from your Desktop or Start menu." -ForegroundColor Green
