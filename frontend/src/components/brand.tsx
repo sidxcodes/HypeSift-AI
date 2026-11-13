@@ -2,15 +2,41 @@
 
 import { Moon, Sun } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 export function LogoMark({ className = "size-8" }: { className?: string }) {
-  // A sieve: long video in, the bright moment passes through.
+  // "Play-face bot": the HypeSift robot whose face is a play button (same art as desktop/hypesift-icon.svg).
+  const id = useId().replace(/:/g, "");
   return (
-    <svg viewBox="0 0 32 32" className={className} aria-hidden>
-      <rect width="32" height="32" rx="9" fill="var(--primary)" />
-      <path d="M7 10h18M9.5 15h13M12.5 20h7" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" />
-      <circle cx="16" cy="25" r="1.9" fill="#67e8f9" />
+    <svg viewBox="0 0 64 64" className={className} aria-hidden>
+      <defs>
+        <linearGradient id={`${id}bg`} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#8b5cf6" />
+          <stop offset="1" stopColor="#4c1d95" />
+        </linearGradient>
+        <linearGradient id={`${id}gl`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#fff" stopOpacity=".16" />
+          <stop offset=".5" stopColor="#fff" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id={`${id}hd`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#fff" />
+          <stop offset="1" stopColor="#ddd6f3" />
+        </linearGradient>
+        <linearGradient id={`${id}pl`} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#a5f3fc" />
+          <stop offset="1" stopColor="#06b6d4" />
+        </linearGradient>
+      </defs>
+      <rect width="64" height="64" rx="15" fill={`url(#${id}bg)`} />
+      <rect width="64" height="64" rx="15" fill={`url(#${id}gl)`} />
+      <path d="M32 14V9" stroke="#ddd6f3" strokeWidth="2" />
+      <circle cx="32" cy="7" r="2.4" fill="#22d3ee" />
+      <rect x="6.5" y="25" width="5" height="13" rx="2.5" fill="#c4b5fd" />
+      <rect x="52.5" y="25" width="5" height="13" rx="2.5" fill="#c4b5fd" />
+      <rect x="10" y="14" width="44" height="36" rx="14" fill={`url(#${id}hd)`} />
+      <rect x="16" y="20" width="32" height="24" rx="9" fill="#17112b" />
+      <path d="M28 25v14l12-7z" fill={`url(#${id}pl)`} stroke={`url(#${id}pl)`} strokeWidth="2.2" strokeLinejoin="round" />
+      <path d="M26 54h12" stroke="#c4b5fd" strokeWidth="3" strokeLinecap="round" />
     </svg>
   );
 }

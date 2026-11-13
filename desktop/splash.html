@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>HypeSift AI</title>
+<link rel="icon" href="hypesift-icon.svg">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root { --bg: #0e0e12; --text: #ecebf2; --muted: #9a97a8; --primary: #8b5cf6; --border: #2a2a35; }
@@ -12,7 +13,7 @@
     font-family: "Segoe UI", system-ui, sans-serif;
     display: grid; place-items: center; text-align: center;
   }
-  .mark { width: 72px; height: 72px; }
+  .mark { width: 96px; height: 96px; display: block; margin: 0 auto; }
   h1 { margin: 20px 0 6px; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
   h1 span { color: var(--primary); }
   p { margin: 0; color: var(--muted); font-size: 14px; }
@@ -25,11 +26,7 @@
 </head>
 <body>
   <main>
-    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
-      <rect width="32" height="32" rx="9" fill="#7c3aed"/>
-      <path d="M7 10h18M9.5 15h13M12.5 20h7" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
-      <circle cx="16" cy="25" r="1.9" fill="#67e8f9"/>
-    </svg>
+    <img class="mark" src="hypesift-icon.svg" alt="">
     <h1>HypeSift <span>AI</span></h1>
     <p>Find the Hype. Create the Highlight.</p>
     <div class="bar" role="progressbar" aria-label="Starting"><i></i></div>
