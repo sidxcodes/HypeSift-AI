@@ -34,9 +34,15 @@ Ollama. No paid APIs, no keys.
 
 ## What works today
 
-- **Input:** resumable chunked uploads (MP4/MOV/MKV/WEBM/M4V/AVI, validated with ffprobe) and direct
-  video-file links. YouTube/Vimeo/TikTok links show their public oEmbed details; their terms don't allow
-  third-party downloading, so HypeSift asks for the creator's own file instead of bypassing that.
+- **Input:** paste a **YouTube link** (watch, `youtu.be`, Shorts, embeds, live replays) or one from TikTok,
+  Instagram, X, Reddit, Vimeo, Twitch, Facebook, Dailymotion and the 1,800+ other sites supported by the
+  free, open-source [yt-dlp](https://github.com/yt-dlp/yt-dlp); direct video-file links; or resumable
+  chunked uploads (MP4/MOV/MKV/WEBM/M4V/AVI, validated with ffprobe). Links are checked in about 2 s
+  (title, channel, length, size) and downloaded as 1080p H.264 + AAC, so they play in the editor without
+  re-encoding. Playlists, channels and live streams are refused with a clear reason, and so are private,
+  members-only and region-blocked videos. Age-restricted and "confirm you're not a bot" videos can use your own browser
+  login if you opt in (`HYPESIFT_YTDLP_COOKIES_BROWSER=edge`). The desktop app keeps yt-dlp updated.
+  Only import videos you own or have permission to use.
 - **AI Generate (one click):** import → transcribe → audio/visual analysis → candidate windows →
   ranking → per-clip reframing → render → publishing copy. Real stage-by-stage progress from the worker,
   with cancel.

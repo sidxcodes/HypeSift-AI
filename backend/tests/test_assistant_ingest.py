@@ -35,19 +35,13 @@ def _client(handler):
     return httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
 
 
-def test_youtube_links_are_metadata_only():
-    def handler(req):
-        assert "oembed" in str(req.url)
-        return httpx.Response(200, json={"title": "My Talk", "author_name": "Me", "thumbnail_url": "https://i/x.jpg"})
-
-    info = ingest.inspect_url("https://www.youtube.com/watch?v=abc", client=_client(handler))
-    assert info.platform == "youtube" and not info.importable
-    assert info.title == "My Talk"
-    assert "Upload" in info.message
-
-
 def test_html_page_is_rejected(monkeypatch):
     monkeypatch.setattr(ingest, "assert_public_host", lambda h: None)
+
+    def no_video(url):
+        raise MediaError("That link isn't a video page HypeSift can read.")
+
+    monkeypatch.setattr(ingest.sites, "probe", no_video)
 
     def handler(req):
         return httpx.Response(200, headers={"content-type": "text/html"}, text="<html>")

@@ -171,12 +171,13 @@ export type Meta = {
 
 export type UrlInfo = {
   url: string;
-  kind: "direct" | "platform";
+  kind: "direct" | "platform" | "page";
   platform: string | null;
   importable: boolean;
   title: string | null;
   author: string | null;
   thumbnail: string | null;
+  duration: number | null;
   size_bytes: number | null;
   content_type: string | null;
   message: string;

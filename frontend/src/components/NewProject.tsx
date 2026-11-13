@@ -260,7 +260,7 @@ export function NewProject() {
                 <Input
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://example.com/my-video.mp4"
+                  placeholder="https://www.youtube.com/watch?v=…  ·  youtu.be  ·  Shorts  ·  TikTok  ·  .mp4"
                   className="h-12 pl-10"
                   aria-label="Video link"
                   disabled={busy}
@@ -294,7 +294,11 @@ export function NewProject() {
                       <span className="truncate font-medium">{urlInfo.title || urlInfo.url}</span>
                     </div>
                     {urlInfo.author && <div className="mt-0.5 text-muted">by {urlInfo.author}</div>}
-                    {urlInfo.size_bytes && <div className="mt-0.5 text-muted">{fmtBytes(urlInfo.size_bytes)}</div>}
+                    <div className="mt-0.5 flex flex-wrap gap-x-3 text-muted">
+                      {urlInfo.platform && urlInfo.kind !== "direct" && <span>{urlInfo.platform}</span>}
+                      {urlInfo.duration ? <span>{fmtTime(urlInfo.duration)}</span> : null}
+                      {urlInfo.size_bytes ? <span>≈ {fmtBytes(urlInfo.size_bytes)}</span> : null}
+                    </div>
                     <p className="mt-2 text-muted">{urlInfo.message}</p>
                     {urlInfo.warnings.map((w) => (
                       <p key={w} className="mt-1 text-warning">{w}</p>
@@ -309,8 +313,10 @@ export function NewProject() {
               )}
               {!urlInfo && !urlError && (
                 <p className="text-sm text-muted">
-                  Direct links to a video file work end-to-end. YouTube, TikTok and similar links show their public
-                  details, but their terms don&apos;t allow downloading — upload your own copy instead.
+                  Paste a YouTube link (videos, Shorts, youtu.be), or one from TikTok, Instagram, X, Reddit, Vimeo,
+                  Twitch, Facebook and 1,800+ other sites, or a direct .mp4 link. HypeSift downloads it in up to
+                  1080p, then the AI finds the moments and edits the clips. Only use videos you own or have
+                  permission to use.
                 </p>
               )}
             </div>

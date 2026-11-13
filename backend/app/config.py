@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     whisper_device: str = "auto"  # auto | cpu | cuda
     whisper_compute_type: str = "auto"
 
+    # --- video-site links (YouTube, Vimeo, TikTok …) via the free yt-dlp ---------------
+    ytdlp_enabled: bool = True
+    ytdlp_max_height: int = 1080
+    # Optional: read cookies from your own browser ("edge", "chrome", "firefox") so videos that
+    # need your login (age-restricted, "confirm you're not a bot") work. Empty = never.
+    ytdlp_cookies_browser: str = ""
+
     # --- optional local LLM (free, via Ollama) ------------------------------
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "gemma3:4b"

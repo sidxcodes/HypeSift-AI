@@ -84,7 +84,7 @@ export default function Landing() {
                 <input
                   value={url}
                   onChange={(e) => setUrl(e.target.value)}
-                  placeholder="Paste a video link (.mp4, .webm…)"
+                  placeholder="Paste a YouTube link (or TikTok, Vimeo, .mp4…)"
                   aria-label="Video link"
                   className="h-12 w-full rounded-xl border border-border bg-surface pl-10 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-primary"
                 />
@@ -240,7 +240,7 @@ export default function Landing() {
               <ul className="mt-3 grid gap-2 text-sm text-muted sm:grid-cols-2">
                 <li>• Self-hostable: transcription and AI run on your own machine.</li>
                 <li>• Projects are private to your account; download links expire.</li>
-                <li>• We never download from YouTube or other platforms against their terms.</li>
+                <li>• Paste a YouTube link and go — use videos you own or have permission to clip.</li>
                 <li>• Scores are explained estimates — never promises of views or revenue.</li>
               </ul>
             </div>

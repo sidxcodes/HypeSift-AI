@@ -143,3 +143,16 @@ Log "windows closed; stopping servers"
 Stop-Tree $web
 Stop-Tree $api
 Log "stopped"
+
+# 6. Keep the YouTube downloader current. Sites change often and yt-dlp ships fixes within days,
+#    so refresh it (free, from PyPI) every 3 days - after closing, so it never slows a launch.
+$ytStamp = Join-Path $DataDir 'yt-dlp-updated.txt'
+$ytAge = if (Test-Path $ytStamp) { (Get-Date) - (Get-Item $ytStamp).LastWriteTime } else { [TimeSpan]::MaxValue }
+if ($ytAge.TotalDays -ge 3) {
+    Log "updating yt-dlp"
+    $upd = Start-Process -FilePath $py -WindowStyle Hidden -PassThru -Wait `
+        -ArgumentList '-m', 'pip', 'install', '--upgrade', '--quiet', '--disable-pip-version-check', 'yt-dlp' `
+        -RedirectStandardOutput (Join-Path $Logs 'yt-dlp-update.out.log') -RedirectStandardError (Join-Path $Logs 'yt-dlp-update.log')
+    if ($upd.ExitCode -eq 0) { Set-Content -Path $ytStamp -Value (Get-Date -Format o) -Encoding ascii }
+    Log "yt-dlp update exit $($upd.ExitCode)"
+}

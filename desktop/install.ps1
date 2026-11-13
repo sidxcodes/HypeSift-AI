@@ -12,6 +12,9 @@ if (-not (Test-Path (Join-Path $Backend '.venv\Scripts\python.exe'))) {
     python -m venv (Join-Path $Backend '.venv')
     & (Join-Path $Backend '.venv\Scripts\python.exe') -m pip install -r (Join-Path $Backend 'requirements.txt')
 }
+# YouTube / TikTok / Vimeo link import. Re-running this script also updates it to the latest release.
+Write-Host "Updating the video-link downloader (yt-dlp)..."
+& (Join-Path $Backend '.venv\Scripts\python.exe') -m pip install --upgrade --quiet --disable-pip-version-check yt-dlp
 if (-not (Test-Path (Join-Path $Frontend 'node_modules'))) {
     Write-Host "Installing web app packages..."
     Push-Location $Frontend; npm install; Pop-Location

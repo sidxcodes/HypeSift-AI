@@ -284,7 +284,7 @@ def generate(ctx: JobContext) -> None:
     use_llm = settings.get("use_llm", True) and llm.status()["available"]
     ctx.plan(
         {
-            "ingest": 8 if source_type == "url" else 2,
+            "ingest": 14 if source_type == "url" else 2,
             "prepare": 6,
             "transcribe": 30,
             "analyze": 12,
@@ -295,7 +295,8 @@ def generate(ctx: JobContext) -> None:
     )
 
     # 1. ingest ---------------------------------------------------------------
-    ctx.stage("ingest", "Importing video")
+    site = ingest.site_label(url or "") if source_type == "url" else None
+    ctx.stage("ingest", f"Downloading from {site}" if site else "Importing video")
     if source_type == "url" and not storage.exists((p.media or {}).get("source_key")):
         key = pkey(p.id, "source.mp4")
         ingest.download(

@@ -9,7 +9,7 @@ FastAPI ── auth · uploads · projects · clips · jobs · assistant · medi
   ▼                                               │
 SQLite/Postgres ◄────────── Worker (thread or `python -m app.worker`)
                                 │
-                                ├─ ingest      direct-link download (SSRF-guarded) / moved upload
+                                ├─ ingest      video-site link (yt-dlp) / direct file (SSRF-guarded) / upload
                                 ├─ prepare     ffprobe, thumbnail, H.264 preview proxy if needed
                                 ├─ transcribe  faster-whisper, word timestamps (CUDA → CPU)
                                 ├─ analyze     loudness/flux/flatness @10 Hz, motion + cuts @2 Hz
@@ -49,7 +49,7 @@ SQLite/Postgres ◄────────── Worker (thread or `python -m a
 |---|---|---|
 | POST | `/auth/signup`, `/auth/login`, `/auth/logout` · GET `/auth/me` · PUT `/auth/brand-kit` | accounts |
 | POST | `/uploads` → PUT `/uploads/{id}?offset=` → POST `/uploads/{id}/complete` · GET `/uploads/{id}` | resumable upload |
-| POST | `/url/check` | validate a link, oEmbed metadata for platforms |
+| POST | `/url/check` | read a link: title, channel, length, size, importable or why not |
 | POST/GET | `/projects` · GET/PATCH/DELETE `/projects/{id}` · POST `/projects/{id}/generate` · GET `/projects/{id}/transcript` | projects & AI Generate |
 | GET | `/clips` · GET/PATCH/DELETE `/clips/{id}` · POST `/clips/{id}/render` | library, editor, re-render |
 | POST/PUT | `/clips/{id}/publish` · POST `/clips/{id}/feedback`, `/clips/{id}/favorite` | copy, ratings |
@@ -81,5 +81,12 @@ evidence strings, so the UI shows the reasons rather than only a number.
   re-queued at startup.
 - **Cleanup:** an hourly janitor removes stale work folders and abandoned uploads
   (`HYPESIFT_TEMP_FILE_TTL_HOURS`). Deleting a project or clip deletes its files.
-- **Platform terms:** no downloading from YouTube, TikTok, Instagram and similar platforms; oEmbed
-  metadata only.
+- **Video-site links** (`app/pipeline/sites.py`): yt-dlp reads the page (no download) to show what will be
+  imported, refusing playlists, channels, live streams and over-long videos up front. YouTube list pages
+  are refused before any network call. The download picks H.264 + AAC up to 1080p
+  (`HYPESIFT_YTDLP_MAX_HEIGHT`), merges with FFmpeg into `source.mp4`, reports byte progress across both
+  streams, stops on cancel and cleans up partial files. yt-dlp error text is mapped to plain answers
+  (private, age-restricted, bot check, region, members-only, removed, rate-limited). Cookies are only
+  read from your browser if you set `HYPESIFT_YTDLP_COOKIES_BROWSER`; there is no DRM circumvention.
+  Downloading can conflict with a platform's terms, so import only videos you own or may use.
+  `HYPESIFT_YTDLP_ENABLED=false` falls back to oEmbed metadata only.
