@@ -63,7 +63,21 @@ Ollama. No paid APIs, no keys.
   HMAC-signed expiring media links, SSRF guard on URL imports, upload size/duration/clip quotas, temp-file
   cleanup.
 
-## Run it locally
+## Use it as a desktop app (Windows)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File desktop\install.ps1
+```
+
+This creates a **HypeSift AI** shortcut on the Desktop and in the Start menu. Clicking it opens HypeSift in its
+own app window, with no console windows. Behind the scenes it starts Ollama (if installed), the API and a
+production build of the web app. Closing the last HypeSift window stops the servers again.
+
+- Typical start time is about 6 s. After a code change, the first launch rebuilds the web app (about 30 s).
+- The app runs on `127.0.0.1` only (ports 8765 and 3765), and your login is remembered in the app window.
+- Logs are written to `%LOCALAPPDATA%\HypeSift\logs`.
+
+## Run it locally (development)
 
 Prerequisites (all free): **Python 3.12+**, **Node 20+**, **FFmpeg** on PATH (`winget install Gyan.FFmpeg`,
 `brew install ffmpeg`, or `apt install ffmpeg`). Optional: **Ollama** with `ollama pull gemma3:4b`, and an

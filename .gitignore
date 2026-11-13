@@ -10,3 +10,4 @@ backend/smoke_out/
 samples/DEV_ACCOUNT.txt
 frontend/.next-build/
 frontend/.env.local
+frontend/.next-app/

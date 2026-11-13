@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>HypeSift AI</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg: #0e0e12; --text: #ecebf2; --muted: #9a97a8; --primary: #8b5cf6; --border: #2a2a35; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    display: grid; place-items: center; text-align: center;
+  }
+  .mark { width: 72px; height: 72px; }
+  h1 { margin: 20px 0 6px; font-size: 26px; font-weight: 700; letter-spacing: -0.02em; }
+  h1 span { color: var(--primary); }
+  p { margin: 0; color: var(--muted); font-size: 14px; }
+  .bar { width: 220px; height: 4px; margin: 26px auto 14px; border-radius: 4px; background: var(--border); overflow: hidden; }
+  .bar i { display: block; width: 40%; height: 100%; border-radius: 4px; background: var(--primary); animation: slide 1.2s ease-in-out infinite; }
+  @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+  @media (prefers-reduced-motion: reduce) { .bar i { animation: none; width: 100%; } }
+  #hint { font-size: 12px; }
+</style>
+</head>
+<body>
+  <main>
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true">
+      <rect width="32" height="32" rx="9" fill="#7c3aed"/>
+      <path d="M7 10h18M9.5 15h13M12.5 20h7" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+      <circle cx="16" cy="25" r="1.9" fill="#67e8f9"/>
+    </svg>
+    <h1>HypeSift <span>AI</span></h1>
+    <p>Find the Hype. Create the Highlight.</p>
+    <div class="bar" role="progressbar" aria-label="Starting"><i></i></div>
+    <p id="status" aria-live="polite">Starting the app…</p>
+    <p id="hint"></p>
+  </main>
+<script>
+  // The launcher starts the API first, then the web app on this port. We redirect as soon as it answers.
+  const url = "http://127.0.0.1:3765/app";
+  const status = document.getElementById("status");
+  const hint = document.getElementById("hint");
+  const t0 = Date.now();
+  async function poll() {
+    try {
+      await fetch("http://127.0.0.1:3765/manifest.webmanifest", { mode: "no-cors", cache: "no-store" });
+      status.textContent = "Ready";
+      location.replace(url);
+      return;
+    } catch (_) {}
+    const s = Math.round((Date.now() - t0) / 1000);
+    if (s > 12) status.textContent = "Getting things ready… (" + s + "s)";
+    if (s > 25) hint.textContent = "The first launch after an update builds the app, which can take about a minute.";
+    if (s > 240) {
+      status.textContent = "HypeSift didn't start.";
+      hint.textContent = "See the logs in %LOCALAPPDATA%\\HypeSift\\logs, or close this window and try again.";
+      return;
+    }
+    setTimeout(poll, 700);
+  }
+  poll();
+</script>
+</body>
+</html>
