@@ -108,7 +108,7 @@ function Tile({ selected, onClick, label, bg, children }: { selected: boolean; o
       >
         {children}
         {selected && (
-          <span className="absolute right-1 top-1 grid size-4 place-items-center rounded-full bg-primary text-white">
+          <span className="absolute right-1 top-1 grid size-4 place-items-center rounded-full bg-primary text-on-primary">
             <Check className="size-3" />
           </span>
         )}
@@ -278,7 +278,7 @@ function LivePreview({
           transition={s.caption_transition}
           effect={s.caption_effect}
           overlays={s.hook_title ? [{ kind: "title", text: title || "Your hook title appears here", start: 0, end: 3 }] : []}
-          progressBar={s.progress_bar ? "#7C3AED" : null}
+          progressBar={s.progress_bar ? "#C6F432" : null}
           duration={total}
         />
       )}

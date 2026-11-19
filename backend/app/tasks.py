@@ -136,7 +136,7 @@ def default_edits(settings: dict, brand: dict, title: str, keywords: list[str]) 
         },
         "logo": {"key": settings.get("logo_key"), "position": settings.get("logo_position", "top_right")},
         "music": {"key": settings.get("music_key"), "volume": float(settings.get("music_volume", 0.16))},
-        "progress_bar": {"enabled": bool(settings.get("progress_bar")), "color": "#7C3AED"},
+        "progress_bar": {"enabled": bool(settings.get("progress_bar")), "color": "#C6F432"},
     }
 
 

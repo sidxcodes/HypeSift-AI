@@ -44,7 +44,7 @@ export function textStyle(style: CaptionStyle, scale: number, effect: Effect = "
     shadows.push(`0 0 ${glow * scale * 1.6}px ${c}`, `0 0 ${glow * scale * 0.8}px ${c}`);
   }
   if (effect === "shadow3d") {
-    const c = style.highlight !== style.color ? style.highlight : "#7C3AED";
+    const c = style.highlight !== style.color ? style.highlight : "#C6F432";
     shadows.push(`${7 * scale}px ${7 * scale}px 0 ${c}`);
   }
   return {
@@ -161,8 +161,8 @@ export function CaptionOverlay({
             style={{
               fontFamily: '"HS Poppins ExtraBold", sans-serif',
               fontSize: (64 * scale) / 1.762,
-              color: o.color ?? "#fff",
-              background: o.bg ?? "#7C3AED",
+              color: o.color ?? "#0B0F14",
+              background: o.bg ?? "#C6F432",
               padding: `${6 * scale}px ${16 * scale}px`,
               lineHeight: 1.25,
               textAlign: "center",

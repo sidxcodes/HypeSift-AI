@@ -457,7 +457,7 @@ export default function EditorPage() {
                             <input type="range" min={1} max={Math.max(2, Math.floor(s.end - s.start))} step={0.5} value={(title.end ?? 3) - title.start} onChange={(e) => setOv("title", { end: title.start + Number(e.target.value) })} className="w-full" aria-label="Title duration" />
                           </Field>
                           <Field label="Label colour">
-                            <input type="color" value={title.bg ?? "#7c3aed"} onChange={(e) => setOv("title", { bg: e.target.value })} className="h-10 w-full cursor-pointer rounded-xl border border-border bg-surface" aria-label="Title background colour" />
+                            <input type="color" value={title.bg ?? "#c6f432"} onChange={(e) => setOv("title", { bg: e.target.value })} className="h-10 w-full cursor-pointer rounded-xl border border-border bg-surface" aria-label="Title background colour" />
                           </Field>
                         </div>
                       </>

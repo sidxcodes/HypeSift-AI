@@ -251,7 +251,7 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
         >
           <RotateCcw className="size-4" />
         </button>
-        <button onClick={toggle} className="grid size-11 place-items-center rounded-full bg-primary text-white shadow cursor-pointer" aria-label={playing ? "Pause" : "Play"}>
+        <button onClick={toggle} className="grid size-11 place-items-center rounded-full bg-primary text-on-primary shadow cursor-pointer" aria-label={playing ? "Pause" : "Play"}>
           {playing ? <Pause className="size-5" fill="currentColor" /> : <Play className="size-5 translate-x-0.5" fill="currentColor" />}
         </button>
         <button onClick={() => setMuted((m) => !m)} className="grid size-9 place-items-center rounded-xl text-muted hover:bg-surface-2 hover:text-text cursor-pointer" aria-label={muted ? "Unmute" : "Mute"}>

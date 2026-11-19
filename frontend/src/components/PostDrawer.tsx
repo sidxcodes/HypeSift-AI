@@ -28,7 +28,7 @@ type Fields = Record<string, string | boolean>;
 export function PlatformIcon({ p, className }: { p: string; className?: string }) {
   const m = PLATFORM_META[p] ?? { color: "#666", letter: "?" };
   return (
-    <span className={cx("grid shrink-0 place-items-center rounded-full text-[11px] font-bold text-white", className ?? "size-8")} style={{ background: m.color }}>
+    <span className={cx("grid shrink-0 place-items-center rounded-full text-[11px] font-bold text-white ring-1 ring-white/20", className ?? "size-8")} style={{ background: m.color }}>
       {m.letter}
     </span>
   );

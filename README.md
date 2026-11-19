@@ -1,6 +1,6 @@
 # HypeSift AI
 
-[![CI](https://github.com/sidxcodes/HypeSift-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/sidxcodes/HypeSift-AI/actions/workflows/ci.yml) ![License: MIT](https://img.shields.io/badge/license-MIT-7c3aed) ![Python](https://img.shields.io/badge/python-3.12%2B-3776ab) ![Next.js](https://img.shields.io/badge/Next.js-15-000)
+[![CI](https://github.com/sidxcodes/HypeSift-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/sidxcodes/HypeSift-AI/actions/workflows/ci.yml) ![License: MIT](https://img.shields.io/badge/license-MIT-c6f432) ![Python](https://img.shields.io/badge/python-3.12%2B-3776ab) ![Next.js](https://img.shields.io/badge/Next.js-15-000)
 
 **Find the Hype. Create the Highlight.**
 

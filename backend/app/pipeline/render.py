@@ -30,7 +30,7 @@ DEFAULT_EDITS: dict[str, Any] = {
     "zoom": {"start": False, "key_phrases": False},  # punch-in at the start / on key phrases
     "logo": {"key": None, "position": "top_right", "size": 0.16, "opacity": 0.92},
     "music": {"key": None, "volume": 0.16},  # background bed, ducked under speech
-    "progress_bar": {"enabled": False, "color": "#7C3AED"},
+    "progress_bar": {"enabled": False, "color": "#C6F432"},
 }
 
 LOGO_POS = {

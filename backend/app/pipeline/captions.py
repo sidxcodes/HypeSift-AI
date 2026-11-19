@@ -509,8 +509,8 @@ def build_ass(
         if ov.get("kind") == "watermark":
             events.append(f"Dialogue: 2,{ts(s)},{ts(e)},Mark,,0,0,0,,{text}")
         else:
-            col = ass_color(ov.get("color", "#FFFFFF"))
-            bg = ass_color(ov.get("bg", "#7C3AED"), 0.92)
+            col = ass_color(ov.get("color", "#0B0F14"))
+            bg = ass_color(ov.get("bg", "#C6F432"), 0.95)
             events.append(f"Dialogue: 1,{ts(s)},{ts(e)},Over,,0,0,0,,{{\\1c{col}\\3c{bg}\\fad(200,200)}}{text}")
     if progress_bar and duration:
         # A full-width rectangle revealed left to right by an animated clip: a retention bar.
@@ -549,7 +549,7 @@ def _enter(style: dict, k: float, anchor: tuple[int, int, int], first: bool, ci:
             tags += "\\fscx55\\fscy55\\t(0,120,\\fscx114\\fscy114)\\t(120,220,\\fscx100\\fscy100)"
     eff = style.get("effect", "none")
     if eff == "shadow3d":
-        tags += f"\\shad{max(3, int(7 * k))}\\4c{ass_color(style['highlight'] if style['highlight'] != style['color'] else '#7C3AED')}\\4a&H00&"
+        tags += f"\\shad{max(3, int(7 * k))}\\4c{ass_color(style['highlight'] if style['highlight'] != style['color'] else '#C6F432')}\\4a&H00&"
     elif eff == "tilt":
         tags += f"\\frz{(-3, 2.5, -2, 3)[ci % 4]}"
     if style.get("opacity", 1.0) < 1:

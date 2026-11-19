@@ -34,8 +34,8 @@ const STEPS: { label: string; stages: string[] }[] = [
 function Banner({ job, onCancel }: { job: Job; onCancel: () => void }) {
   const idx = Math.max(0, STEPS.findIndex((s) => s.stages.includes(job.stage)));
   return (
-    <div className="flex flex-wrap items-center gap-4 rounded-2xl bg-banner px-5 py-3.5 text-white">
-      <div className="relative grid size-9 shrink-0 place-items-center rounded-full bg-white/15">
+    <div className="flex flex-wrap items-center gap-4 rounded-2xl border border-primary/40 bg-primary-soft px-5 py-3.5 text-text">
+      <div className="relative grid size-9 shrink-0 place-items-center rounded-full bg-primary text-on-primary">
         <Loader2 className="size-5 animate-spin" />
       </div>
       <div className="min-w-0 flex-1">
@@ -52,10 +52,10 @@ function Banner({ job, onCancel }: { job: Job; onCancel: () => void }) {
           <span className="ml-1 truncate opacity-70">· {job.message}</span>
         </div>
       </div>
-      <button onClick={onCancel} className="rounded-lg px-2 py-1.5 text-xs opacity-80 hover:bg-white/10 hover:opacity-100 cursor-pointer">
+      <button onClick={onCancel} className="rounded-lg px-2 py-1.5 text-xs text-muted hover:bg-surface-2 hover:text-text cursor-pointer">
         Cancel
       </button>
-      <Link href="/app/new" className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-white px-3.5 text-sm font-medium text-banner hover:bg-white/90">
+      <Link href="/app/new" className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-primary px-3.5 text-sm font-medium text-on-primary hover:bg-primary-hover">
         <Upload className="size-4" /> Upload another video
       </Link>
     </div>
