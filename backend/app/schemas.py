@@ -53,6 +53,8 @@ class GenerateSettings(BaseModel):
     music_key: str | None = Field(default=None, max_length=200)
     music_volume: float = Field(default=0.16, ge=0.02, le=1.0)
     transcript_only: bool = False  # Transcript generator: stop after speech-to-text
+    # "A vs B" videos: stack both versions in one vertical frame (split screens and alternating shots)
+    comparison: bool = True
     language: str = Field(default="auto", max_length=8)
     # Captions for non-English speech: the spoken language, or an English translation
     caption_language: Literal["original", "english"] = "original"

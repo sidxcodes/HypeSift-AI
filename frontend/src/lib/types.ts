@@ -48,6 +48,7 @@ export type GenerateSettings = {
   music_key: string | null;
   music_volume: number;
   transcript_only: boolean;
+  comparison: boolean;
   language: string;
   caption_language: "original" | "english";
   quality: "draft" | "standard" | "high";
@@ -91,7 +92,10 @@ export type Overlay = { kind: "title" | "watermark"; text: string; start: number
 
 export type Edits = {
   aspect: "9:16" | "1:1" | "4:5" | "16:9";
-  crop: { mode: "auto" | "manual" | "center" | "split" | "fit" | "facecam"; x: number; y: number; zoom: number };
+  crop: { mode: "auto" | "manual" | "center" | "split" | "fit" | "facecam" | "compare" | "pair"; x: number; y: number; zoom: number };
+  pair?: { b_start: number };
+  compare?: { swap: boolean };
+  labels?: { top?: string; bottom?: string; enabled?: boolean };
   captions: {
     enabled: boolean;
     preset: string;

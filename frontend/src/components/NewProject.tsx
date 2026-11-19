@@ -683,6 +683,12 @@ export function NewProject() {
             <Switch checked={s.hook_title} onChange={(v) => set("hook_title", v)} label="Hook title for the first 3 seconds" hint="The clip's hook as on-screen text, so viewers know why to stay" />
             <Switch checked={s.progress_bar} onChange={(v) => set("progress_bar", v)} label="Progress bar" hint="A thin bar along the bottom that fills as the clip plays" />
             <Switch checked={s.silence_removal} onChange={(v) => set("silence_removal", v)} label="Remove silent pauses" hint="Tighter pacing: cuts gaps longer than 0.7 s" />
+            <Switch
+              checked={s.comparison}
+              onChange={(v) => set("comparison", v)}
+              label="Comparison videos: both versions in one frame"
+              hint="For “A vs B” videos: split screens and alternating shots become stacked, labelled side-by-side clips"
+            />
           </Section>
 
           <Section title="Logo" info="Shown in a corner of every clip.">

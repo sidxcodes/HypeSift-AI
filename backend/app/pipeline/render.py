@@ -168,16 +168,45 @@ def layout_seam(edits: dict, rf: dict) -> float | None:
         return FACECAM_TOP
     if mode == "split" and rf.get("split") and edits.get("aspect") == "9:16":
         return 0.5
+    if mode in ("compare", "pair") and edits.get("aspect") in ("9:16", "4:5"):
+        return 0.5
     return None
 
 
-def build_video_chain(probe: ffmpeg.Probe, edits: dict, rf: dict, W: int, H: int) -> str:
+def _cover(label_in: str, W: int, H: int, label_out: str) -> str:
+    return f"{label_in}scale={W}:{H}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{H}{label_out}"
+
+
+def build_video_chain(probe: ffmpeg.Probe, edits: dict, rf: dict, W: int, H: int, pair_input: int = 1) -> str:
     """Filter chain from [0:v] to [vr] (reframed, scaled)."""
     crop = edits["crop"]
     mode = crop.get("mode", "auto")
     aspect = edits["aspect"]
     zoom = max(1.0, min(3.0, float(crop.get("zoom") or 1.0)))
     sw, sh = probe.width, probe.height
+    if mode in ("compare", "pair") and aspect in ("9:16", "4:5"):
+        # Comparison: version A on top, version B below, a thin divider between them.
+        hh = H // 2 // 2 * 2
+        bar = f"drawbox=x=0:y={hh - 3}:w={W}:h=6:color=0x0B0F14@0.9:t=fill"
+        if mode == "pair":
+            # two moments of the same video (A stretch and B stretch) playing at the same time
+            return (
+                _cover("[0:v]", W, hh, "[ta]")
+                + ";"
+                + _cover(f"[{pair_input}:v]", W, H - hh, "[tb]")
+                + f";[ta][tb]vstack=2,{bar},setsar=1[vr]"
+            )
+        half = sw // 2 // 2 * 2
+        m = 4  # stay clear of the divider line in the source
+        left, right = f"crop={half - m}:{sh}:0:0", f"crop={sw - half - m}:{sh}:{half + m}:0"
+        top, bottom = (right, left) if (edits.get("compare") or {}).get("swap") else (left, right)
+        return (
+            "[0:v]split=2[ca][cb];"
+            + _cover(f"[ca]{top},", W, hh, "[ta]")
+            + ";"
+            + _cover(f"[cb]{bottom},", W, H - hh, "[tb]")
+            + f";[ta][tb]vstack=2,{bar},setsar=1[vr]"
+        )
     if mode == "facecam" and rf.get("facecam") and aspect in ("9:16", "4:5"):
         # Streamer layout: their webcam overlay on top, the game (or shared screen) below.
         top_h = int(H * FACECAM_TOP) // 2 * 2
@@ -270,7 +299,10 @@ def render(
     if end - start < 0.5:
         raise ffmpeg.MediaError("Clip is shorter than half a second.")
     W, H = output_size(edits["aspect"], edits["quality"])
-    segs = keep_segments(words, start, end, bool(edits.get("silence_removal")))
+    mode = (edits.get("crop") or {}).get("mode")
+    b_start = (edits.get("pair") or {}).get("b_start")
+    pair = mode == "pair" and b_start is not None
+    segs = keep_segments(words, start, end, bool(edits.get("silence_removal")) and not pair)
     fmap = time_mapper(segs)
     out_dur = sum(s.e - s.s for s in segs)
 
@@ -295,11 +327,16 @@ def render(
         out_dur,
         progress_bar=pb.get("color") if pb.get("enabled") else None,
         seam=layout_seam(edits, rf),
+        labels=(edits.get("labels") or {}) if mode in ("compare", "pair") else None,
     )
     (work_dir / "captions.ass").write_text(ass, encoding="utf-8")
     srt = cap.build_srt(mapped, uppercase=bool(style and style.get("uppercase")))
 
-    graph = [build_video_chain(probe, edits, rf, W, H)]
+    # input numbering: 0 = source, then the B stretch (pair), the logo, the music
+    nxt = 1
+    pair_idx = nxt if pair else None
+    nxt += 1 if pair else 0
+    graph = [build_video_chain(probe, edits, rf, W, H, pair_input=pair_idx or 1)]
     has_a = probe.has_audio
     vlast, alast = "[vr]", "[0:a]" if has_a else None
     if len(segs) > 1 or segs[0].s > 0.01 or segs[0].e < (end - start) - 0.01:
@@ -328,7 +365,9 @@ def render(
         vf.append(f"zoompan=z='{zx}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={W}x{H}:fps={fps:.3f}")
     logo = edits.get("logo") or {}
     logo_path = Path(logo["path"]) if logo.get("path") else None
+    logo_idx = nxt
     if logo_path and logo_path.exists():
+        nxt += 1
         # captions go on top of the logo; the logo sits on the reframed (and zoomed) picture
         pre = f"{vlast}{','.join(vf) or 'null'}[vz]"
         graph.append(pre)
@@ -336,7 +375,7 @@ def render(
         op = max(0.1, min(1.0, float(logo.get("opacity") or 0.92)))
         m = int(36 * W / 1080)
         pos = LOGO_POS.get(logo.get("position") or "top_right", LOGO_POS["top_right"]).format(m=m)
-        graph.append(f"[1:v]scale={lw}:-1,format=rgba,colorchannelmixer=aa={op:.2f}[lg]")
+        graph.append(f"[{logo_idx}:v]scale={lw}:-1,format=rgba,colorchannelmixer=aa={op:.2f}[lg]")
         graph.append(f"[vz][lg]overlay={pos}:format=auto[vl]")
         vlast, vf = "[vl]", []
     vf.append(f"ass=filename=captions.ass:fontsdir='{_fonts_rel(work_dir)}'")
@@ -351,7 +390,7 @@ def render(
     music = edits.get("music") or {}
     music_path = Path(music["path"]) if music.get("path") else None
     has_music = bool(music_path and music_path.exists())
-    mus_idx = 2 if (logo_path and logo_path.exists()) else 1
+    mus_idx = nxt
     if has_music:
         vol = max(0.02, min(1.0, float(music.get("volume") or 0.16)))
         graph.append(f"[{mus_idx}:a]atrim=0:{out_dur:.3f},volume={vol:.3f},aresample=48000[mus]")
@@ -394,6 +433,9 @@ def render(
         "-i",
         str(src),
     ]
+    if pair:
+        b0 = max(0.0, min(float(b_start), probe.duration - 0.5))
+        args += ["-ss", f"{b0:.3f}", "-t", f"{end - start:.3f}", "-i", str(src)]
     if logo_path and logo_path.exists():
         args += ["-i", str(logo_path)]
     if has_music:

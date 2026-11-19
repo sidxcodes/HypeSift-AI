@@ -31,6 +31,9 @@ ALLOWED_EDIT_KEYS = {
     "logo",
     "music",
     "progress_bar",
+    "pair",
+    "compare",
+    "labels",
 }
 
 

@@ -94,6 +94,7 @@ export function CaptionOverlay({
   progressBar,
   duration,
   seam,
+  labels,
 }: {
   chunks: Chunk[];
   style: CaptionStyle;
@@ -107,6 +108,7 @@ export function CaptionOverlay({
   progressBar?: string | null;
   duration?: number;
   seam?: number | null;
+  labels?: { top?: string; bottom?: string; enabled?: boolean } | null;
 }) {
   const scale = width / 1080;
   const chunk = enabled ? chunks.find((c) => t >= c.s && t < Math.max(c.e, c.s + 0.2)) : undefined;
@@ -155,6 +157,28 @@ export function CaptionOverlay({
 
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+      {labels?.enabled !== false &&
+        (["top", "bottom"] as const).map((k) =>
+          labels?.[k] ? (
+            <span
+              key={k}
+              className="absolute"
+              style={{
+                left: 34 * scale,
+                top: (k === "top" ? 0 : (seam ?? 0.5) * (width * 16) / 9) + 34 * scale,
+                fontFamily: '"HS Poppins ExtraBold", sans-serif',
+                fontSize: (44 * scale) / 1.762,
+                lineHeight: 1.3,
+                color: "#fff",
+                background: "rgba(11,15,20,0.85)",
+                padding: `${6 * scale}px ${14 * scale}px`,
+                textTransform: "uppercase",
+              }}
+            >
+              {labels[k]}
+            </span>
+          ) : null,
+        )}
       {progressBar && duration ? (
         <div className="absolute bottom-0 left-0" style={{ height: Math.max(3, 10 * scale), width: `${Math.min(100, (t / duration) * 100)}%`, background: progressBar }} />
       ) : null}

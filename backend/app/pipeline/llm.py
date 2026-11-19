@@ -61,6 +61,27 @@ def chat_json(system: str, user: str, temperature: float = 0.4, max_tokens: int 
     return _parse(content)
 
 
+def vision_json(prompt: str, images: list[bytes], max_tokens: int = 200) -> dict:
+    """Ask the local multimodal model (gemma3) about JPEG images; returns parsed JSON."""
+    import base64
+
+    s = get_settings()
+    r = httpx.post(
+        f"{s.ollama_url}/api/chat",
+        json={
+            "model": s.ollama_model,
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": 0.1, "num_predict": max_tokens},
+            "messages": [{"role": "user", "content": prompt, "images": [base64.b64encode(i).decode() for i in images]}],
+        },
+        timeout=s.llm_timeout_seconds,
+    )
+    r.raise_for_status()
+    out = _parse(r.json().get("message", {}).get("content", ""))
+    return out if isinstance(out, dict) else {}
+
+
 def _parse(content: str) -> dict | list:
     try:
         return json.loads(content)

@@ -16,7 +16,20 @@ from .config import get_settings
 from .db import SessionLocal
 from .jobs import JobContext, UserFacingError, handler
 from .models import Clip, Project, User
-from .pipeline import ffmpeg, highlights, ingest, llm, longscan, publish, reframe, render, signals, sites, transcribe
+from .pipeline import (
+    compare,
+    ffmpeg,
+    highlights,
+    ingest,
+    llm,
+    longscan,
+    publish,
+    reframe,
+    render,
+    signals,
+    sites,
+    transcribe,
+)
 from .pipeline.highlights import Prefs
 from .pipeline.transcribe import Transcript
 from .storage import storage
@@ -264,6 +277,51 @@ def _clip_from_candidate(
     )
 
 
+def _comparison_clip(project: Project, x: dict, rank: int, brand: dict, src: Path, words) -> Clip:
+    """A stacked "A vs B" clip from compare.candidates()."""
+    top, bottom = x["top"], x["bottom"]
+    scene = compare.describe(src, (x["start"] + x["end"]) / 2)
+    title = f"{top} vs {bottom}" + (f": {scene}" if scene else "")
+    text = " ".join(w.w for w in words if x["start"] <= w.s < x["end"])
+    settings = dict(project.settings)
+    edits = default_edits({**settings, "hook_title": False}, brand, title, [])
+    edits["crop"] = {**edits["crop"], "mode": x["mode"]}
+    edits["silence_removal"] = False
+    edits["labels"] = {"top": top, "bottom": bottom, "enabled": True}
+    if x["mode"] == "pair":
+        edits["pair"] = {"b_start": x["b_start"]}
+    else:
+        edits["compare"] = {"swap": bool(x.get("swap"))}
+    kind = "split screen" if x["mode"] == "compare" else "matching shots"
+    dims = {
+        "hook": 70.0,
+        "context": 75.0,
+        "pacing": 60.0,
+        "novelty": 80.0,
+        "emotion": 55.0,
+        "visual": 70.0,
+        "relevance": 85.0,
+    }
+    return Clip(
+        project_id=project.id,
+        rank=rank,
+        start=round(x["start"], 3),
+        end=round(x["end"], 3),
+        title=title[:250],
+        hook=title,
+        text=text or title,
+        content_type="comparison",
+        score=int(x["score"]),
+        score_breakdown={"dims": dims, "engine": "comparison layout", "evidence": {}},
+        reasons=[
+            f"{top} and {bottom} side by side ({kind}), playing at the same time",
+            "Comparisons invite comments: viewers pick a side",
+        ],
+        edits=edits,
+        render_status="pending",
+    )
+
+
 def _render_and_publish(ctx: JobContext, project_id: str, clip_ids: list[str], words, settings: dict) -> None:
     ctx.stage("render", f"Rendering {len(clip_ids)} clips")
     for i, cid in enumerate(clip_ids):
@@ -481,9 +539,16 @@ def generate(ctx: JobContext) -> None:
     save_signals(p.id, sig)
     ctx.progress(0.8, "Looking for a streamer facecam")
     facecam = reframe.detect_facecam(src, 0, probe.duration, samples=48)
+    comp = None
+    if settings.get("comparison", True) and not (p.media or {}).get("sections"):
+        ctx.progress(0.9, "Checking for a side-by-side comparison")
+        try:
+            comp = compare.analyze(src, probe.duration, title=p.name)
+        except Exception:  # noqa: BLE001 - an optional layout; never fail the whole run on it
+            log.exception("comparison analysis failed")
     with SessionLocal() as db:
         pp = db.get(Project, p.id)
-        pp.media = {**pp.media, "facecam": facecam}
+        pp.media = {**pp.media, "facecam": facecam, "compare": comp}
         db.commit()
         p = pp
     wav.unlink(missing_ok=True)
@@ -495,8 +560,18 @@ def generate(ctx: JobContext) -> None:
     prefs = prefs_from(settings)
     prefs.barriers = [s["start"] for s in (p.media or {}).get("sections", [])[1:]]
     rank_words = load_rank_words(p.id) or tr.words
-    cands, hctx = highlights.discover(rank_words, sig, prefs, bias, semantic=llm.semantic_rank if use_llm else None)
-    if not cands:
+    comp_cands = compare.candidates(comp, prefs.min_dur, prefs.max_dur, sig.motion)[: prefs.count] if comp else []
+    if comp_cands:
+        ctx.progress(0.2, f"Found a comparison video: making {len(comp_cands)} side-by-side clips")
+        prefs.count = max(0, prefs.count - len(comp_cands))
+    cands, hctx = (
+        highlights.discover(rank_words, sig, prefs, bias, semantic=llm.semantic_rank if use_llm else None)
+        if prefs.count and (rank_words or not comp_cands)
+        else ([], None)
+    )
+    # speech clips must not repeat a comparison moment
+    cands = [c for c in cands if all(c.end <= x["start"] or c.start >= x["end"] for x in comp_cands)]
+    if not cands and not comp_cands:
         raise UserFacingError("No usable moments were found in this video.")
     with SessionLocal() as db:
         pp = db.get(Project, p.id)
@@ -504,15 +579,17 @@ def generate(ctx: JobContext) -> None:
             storage.delete_prefix(f"clips/{old.id}")
             db.delete(old)
         db.flush()
-        new = [_clip_from_candidate(pp, c, hctx, i, brand) for i, c in enumerate(cands)]
+        new = [_comparison_clip(pp, x, i, brand, src, tr.words) for i, x in enumerate(comp_cands)]
+        new += [_clip_from_candidate(pp, c, hctx, len(new) + i, brand) for i, c in enumerate(cands)]
         db.add_all(new)
         pp.analysis = {
-            "genre": hctx.genre,
+            "genre": hctx.genre if hctx else "comparison",
+            "comparison": bool(comp_cands),
             "genre_detected": settings.get("genre", "auto") == "auto",
             "language": tr.language,
             "stt_engine": tr.engine,
             "words": len(tr.words),
-            "speech": hctx.speech,
+            "speech": hctx.speech if hctx else bool(tr.words),
             "scene_cuts": len(sig.cuts),
             "ranking_engine": "signals + " + llm.engine_label() if use_llm else "signals (heuristic)",
             "llm": llm.status(),

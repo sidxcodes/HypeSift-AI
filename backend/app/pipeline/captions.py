@@ -450,6 +450,7 @@ def build_ass(
     duration: float | None = None,
     progress_bar: str | None = None,
     seam: float | None = None,
+    labels: dict | None = None,
 ) -> str:
     """Return a complete ASS document. ``style`` None disables captions (overlays only).
     ``progress_bar`` is a hex colour for a bar that fills along the bottom edge (None = off)."""
@@ -501,6 +502,17 @@ def build_ass(
         f"Style: Mark,Poppins SemiBold,{int(34 * k)},&H59FFFFFF,&H59FFFFFF,&H80000000,&H00000000,0,0,0,0,"
         f"100,100,0,0,1,{1.5 * k:.1f},0,9,{int(40 * k)},{int(40 * k)},{int(40 * k)},1"
     )
+    lines.append(
+        f"Style: Lab,Poppins ExtraBold,{int(44 * k)},&H00FFFFFF,&H00FFFFFF,&H260F0B0B,&H00000000,0,0,0,0,"
+        f"100,100,0,0,3,{14 * k:.1f},0,7,0,0,0,1"
+    )
+    if labels and labels.get("enabled", True) and duration:
+        # name badges on comparison panels ("GTA 6" on top, "Cyberpunk 2077" below)
+        pad = int(34 * k)
+        for key, y in (("top", pad), ("bottom", int(height * (seam or 0.5)) + pad)):
+            text = _esc(str(labels.get(key) or "").strip())[:40]
+            if text:
+                events.append(f"Dialogue: 2,{ts(0)},{ts(duration)},Lab,,0,0,0,,{{\\pos({pad},{y})}}{text.upper()}")
     lines.append(
         "Style: Bar,Poppins Medium,10,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1"
     )

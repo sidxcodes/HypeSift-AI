@@ -50,6 +50,7 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
   ref,
 ) {
   const video = useRef<HTMLVideoElement>(null);
+  const videoB = useRef<HTMLVideoElement>(null); // second moment for "pair" comparison clips
   const canvas = useRef<HTMLCanvasElement>(null);
   const wrap = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 300, h: 533 });
@@ -106,6 +107,32 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, W, H);
     const mode = e.crop.mode;
+    const cover = (el: HTMLVideoElement, x: number, y: number, w: number, h: number, dy: number, dh: number) => {
+      const s = Math.max(W / w, dh / h);
+      const vw = W / s;
+      const vh = dh / s;
+      ctx.drawImage(el, x + (w - vw) / 2, y + (h - vh) / 2, vw, vh, 0, dy, W, dh);
+    };
+    if ((mode === "compare" || mode === "pair") && (e.aspect === "9:16" || e.aspect === "4:5")) {
+      const hh = Math.round(H / 2);
+      if (mode === "pair" && e.pair) {
+        cover(v, 0, 0, sw, sh, 0, hh);
+        const b = videoB.current;
+        if (b && b.readyState >= 2) {
+          const want = e.pair.b_start + (v.currentTime - live.current.start);
+          if (Math.abs(b.currentTime - want) > 0.3) b.currentTime = want;
+          cover(b, 0, 0, sw, sh, hh, H - hh);
+        }
+      } else {
+        const half = sw / 2;
+        const [first, second] = e.compare?.swap ? [half + 2, 0] : [0, half + 2];
+        cover(v, first, 0, half - 2, sh, 0, hh);
+        cover(v, second, 0, half - 2, sh, hh, H - hh);
+      }
+      ctx.fillStyle = "rgba(11,15,20,0.9)";
+      ctx.fillRect(0, hh - 2, W, 4);
+      return;
+    }
     if (mode === "fit") {
       const cover = Math.max(W / sw, H / sh);
       ctx.filter = "blur(18px) brightness(0.9)";
@@ -233,7 +260,11 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
             effect={edits.captions.effect}
             progressBar={edits.progress_bar?.enabled ? edits.progress_bar.color ?? "#C6F432" : null}
             duration={end - start}
+            labels={edits.crop.mode === "compare" || edits.crop.mode === "pair" ? edits.labels : null}
             seam={
+              edits.crop.mode === "compare" || edits.crop.mode === "pair"
+                ? 0.5
+                :
               edits.crop.mode === "facecam" && reframe.facecam && (edits.aspect === "9:16" || edits.aspect === "4:5")
                 ? 0.4
                 : edits.crop.mode === "split" && reframe.split && edits.aspect === "9:16"
@@ -241,6 +272,9 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
                   : null
             }
           />
+          {edits.crop.mode === "pair" && edits.pair && (
+            <video ref={videoB} src={src} className="hidden" preload="auto" muted playsInline onLoadedMetadata={(e) => (e.currentTarget.currentTime = edits.pair!.b_start)} />
+          )}
           {!ready && <div className="absolute inset-0 grid place-items-center text-sm text-white/70">Loading source…</div>}
         </div>
         <video
@@ -266,8 +300,14 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
             onTime(v.currentTime);
             draw();
           }}
-          onPlay={() => setPlaying(true)}
-          onPause={() => setPlaying(false)}
+          onPlay={() => {
+            setPlaying(true);
+            videoB.current?.play().catch(() => {});
+          }}
+          onPause={() => {
+            setPlaying(false);
+            videoB.current?.pause();
+          }}
         />
       </div>
       <div className="mt-3 flex items-center justify-center gap-3">
