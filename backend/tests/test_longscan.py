@@ -42,17 +42,15 @@ def test_json3_caption_words():
     assert (words[0].s, words[1].s) == (1.0, 1.5) and words[0].e == 1.5
 
 
-def test_caption_track_order_prefers_english_then_original():
+def test_caption_track_order_prefers_spoken_language_then_english():
     info = {
         "language": "hi",
         "subtitles": {},
-        "automatic_captions": {
-            "hi-orig": [{"ext": "json3"}],
-            "en": [{"ext": "json3"}],
-            "fr": [{"ext": "json3"}],
-        },
+        "automatic_captions": {"hi-orig": [{"ext": "json3"}], "en": [{"ext": "json3"}], "fr": [{"ext": "json3"}]},
     }
-    assert [k for _, k, _ in sites._caption_track(info)] == ["en", "hi-orig", "hi"][: len(sites._caption_track(info))]
+    assert [k for _, k, _ in sites._caption_track(info)] == ["hi-orig", "en"]
+    info["subtitles"] = {"en": [{"ext": "json3"}]}
+    assert [k for _, k, _ in sites._caption_track(info)][0] == "en"  # manual captions win
 
 
 def test_map_words_onto_joined_timeline():
@@ -97,7 +95,7 @@ def test_plan_with_captions(monkeypatch, tmp_path):
 def test_plan_without_speech_spreads_sections(monkeypatch, tmp_path):
     monkeypatch.setattr(sites, "scan_info", lambda url: {"duration": 7200, "heatmap": []})
     monkeypatch.setattr(sites, "caption_words", lambda url, info, work: None)
-    monkeypatch.setattr(longscan, "_audio_words", lambda *a, **k: [])
+    monkeypatch.setattr(longscan, "_audio_words", lambda *a, **k: ([], []))
     ranges, _, meta = longscan.plan("https://youtu.be/x", prefs_from({"count": 2}), tmp_path, progress=lambda *a: None)
     assert ranges and meta["source"].startswith("audio")
 
@@ -106,3 +104,43 @@ def test_plan_without_speech_spreads_sections(monkeypatch, tmp_path):
 def test_tokens_any_script(text):
     toks = highlights.tokens(text)
     assert toks and all(t and not t.endswith("।") for t in toks)
+
+
+def test_exciting_windows_skip_stream_intro_and_find_loud_parts():
+    import numpy as np
+
+    loud = np.full(4 * 3600, -35.0, dtype=np.float32)
+    loud[30:170] = -5  # loud intro song
+    loud[5000:5060] = -8  # a hype moment
+    loud[9000:9050] = -10  # another
+    w = longscan.exciting_windows(loud, 2)
+    assert len(w) == 2 and all(a > 180 for a, _ in w)
+    assert any(a <= 5030 <= b for a, b in w) and any(a <= 9025 <= b for a, b in w)
+
+
+def test_audio_fallback_transcribes_only_the_exciting_windows(monkeypatch, tmp_path):
+    import numpy as np
+
+    from app.pipeline import ffmpeg, transcribe
+
+    audio = tmp_path / "a.webm"
+    audio.write_bytes(b"x")
+    monkeypatch.setattr(sites, "download_audio", lambda *a, **k: audio)
+    loud = np.full(7200, -35.0, dtype=np.float32)
+    loud[3000:3060] = -6
+    monkeypatch.setattr(longscan, "loudness_per_second", lambda *a, **k: loud)
+    calls = []
+
+    def fake_run(args, timeout=None):
+        (tmp_path / "chunk.wav").write_bytes(b"0" * 4000)
+
+    monkeypatch.setattr(ffmpeg, "run", fake_run)
+
+    def fake_tr(path, lang, dur, **k):
+        calls.append(dur)
+        return transcribe.Transcript(language="en", words=[Word("wow", 1.0, 1.4), Word("insane", 2.0, 2.5)])
+
+    monkeypatch.setattr(transcribe, "transcribe", fake_tr)
+    words, joins = longscan._audio_words("u", tmp_path, None, 7200, 4, lambda *a: None, None)
+    assert len(calls) == 12 and sum(calls) <= 12 * 75 + 1  # 12 windows, not 2 hours of audio
+    assert words and len(joins) == 11

@@ -19,6 +19,7 @@ import contextlib
 import copy
 import logging
 import os
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -329,16 +330,17 @@ def _caption_track(info: dict[str, Any]) -> tuple[list[dict], str, bool] | None:
     lang = (info.get("language") or "").split("-")[0]
     orig = next((k for k in auto if k.endswith("-orig")), None)
     order: list[tuple[dict, str, bool]] = []
-    for k in [k for k in manual if k.split("-")[0] == "en"] + ([lang] if lang in manual else []):
+    # Manual captions first (best quality), then the auto captions in the spoken language. YouTube's
+    # auto-translated English is tried last: it is rate-limited far more often, and HypeSift
+    # translates the chosen parts itself anyway.
+    for k in [k for k in manual if k.split("-")[0] in (lang, "en")]:
         order.append((manual, k, False))
-    if orig and orig.startswith("en"):
-        order.append((auto, orig, True))
-    if "en" in auto:
-        order.append((auto, "en", True))
     if orig:
         order.append((auto, orig, True))
     if lang in auto:
         order.append((auto, lang, True))
+    if "en" in auto:
+        order.append((auto, "en", True))
     order += [(manual, k, False) for k in manual]
     seen: set[str] = set()
     out = []
@@ -370,15 +372,20 @@ def caption_words(url: str, info: dict[str, Any], work: Path) -> tuple[list, str
             "subtitlesformat": "json3",
             "outtmpl": str(work / "subs.%(ext)s"),
         }
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                ydl.process_ie_result(copy.deepcopy(info), download=True)
-            f = work / f"subs.{k}.json3"
-            if f.exists() and f.stat().st_size > 100:
-                data, lang = json.loads(f.read_text(encoding="utf-8")), k
+        for attempt in range(3):  # YouTube answers "429 Too Many Requests" in bursts: wait and retry
+            try:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    ydl.process_ie_result(copy.deepcopy(info), download=True)
                 break
-        except Exception as e:  # noqa: BLE001 - try the next track; the caller falls back to audio
-            log.info("caption track %s failed: %s", k, e)
+            except Exception as e:  # noqa: BLE001 - try again / the next track; the caller falls back to audio
+                log.info("caption track %s failed (try %d): %s", k, attempt + 1, e)
+                if "429" not in str(e) or attempt == 2:
+                    break
+                time.sleep(4 * (attempt + 1))
+        f = work / f"subs.{k}.json3"
+        if f.exists() and f.stat().st_size > 100:
+            data, lang = json.loads(f.read_text(encoding="utf-8")), k
+            break
     words = _json3_words(data) if data else []
     return (words, lang) if words else None
 
@@ -488,7 +495,7 @@ def download_sections(
 
     found: dict[int, Path] = {}
     try:
-        with ThreadPoolExecutor(max_workers=4) as pool:
+        with ThreadPoolExecutor(max_workers=min(8, len(ranges))) as pool:
             futs = {pool.submit(fetch, i, a, b): i for i, (a, b) in enumerate(ranges)}
             for f in as_completed(futs):
                 found[futs[f]] = f.result()
