@@ -144,7 +144,7 @@ def llm_package(title: str, text: str, genre: str, platforms: list[str], tone: s
         f"Return JSON with exactly these keys: {{{', '.join(repr(p) for p in platforms)}}} shaped like "
         f"{ {p: schema[p] for p in platforms} }"
     )
-    data = llm.chat_json(SYSTEM, user, temperature=0.6, max_tokens=1600)
+    data = llm.chat_json(SYSTEM, user, temperature=0.6, max_tokens=1600, fast=True)
     if not isinstance(data, dict):
         raise ValueError("LLM returned non-object")
     cleaned: dict[str, dict] = {}
@@ -160,7 +160,7 @@ def llm_package(title: str, text: str, genre: str, platforms: list[str], tone: s
     if yt is not None:  # #Shorts helps YouTube route the upload to the Shorts feed
         tags = [t for t in (yt.get("hashtags") or []) if str(t).lower() != "#shorts"]
         yt["hashtags"] = ["#Shorts", *tags][:6]
-    return {"engine": llm.engine_label(), "tone": tone, "platforms": cleaned}
+    return {"engine": llm.engine_label(fast=True), "tone": tone, "platforms": cleaned}
 
 
 def generate(

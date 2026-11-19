@@ -21,6 +21,8 @@ _no_think: set[str] = set()  # models that reject the "think" switch
 
 # Best first. The configured model is used when it's installed; otherwise the best one that is.
 PREFERRED = ["qwen3.5:9b", "qwen3:8b", "qwen3.5:4b", "gemma3:4b"]
+# Copywriting and chat commands: quick jobs where a 4B model is ~8x faster on a 6 GB GPU.
+FAST = ["qwen3.5:4b", "gemma3:4b"]
 
 
 def status(force: bool = False) -> dict:
@@ -39,9 +41,11 @@ def status(force: bool = False) -> dict:
             return any(n == m or n == f"{m}:latest" for n in names)
 
         model = next((m for m in [s.ollama_model, *PREFERRED] if have(m)), None)
+        fast = next((m for m in [s.ollama_fast_model, *FAST] if m and have(m)), None)
         out = {
             "available": model is not None,
             "model": model or s.ollama_model,
+            "fast_model": fast or model or s.ollama_model,
             "reason": "" if model else f"No model pulled (run: ollama pull {s.ollama_model})",
         }
     except (httpx.HTTPError, ValueError):
@@ -50,16 +54,17 @@ def status(force: bool = False) -> dict:
     return out
 
 
-def model() -> str:
-    return status()["model"]
+def model(fast: bool = False) -> str:
+    st = status()
+    return st.get("fast_model", st["model"]) if fast else st["model"]
 
 
-def _chat(messages: list[dict], options: dict, fmt: str | None = "json") -> str:
+def _chat(messages: list[dict], options: dict, fmt: str | None = "json", fast: bool = False) -> str:
     """One Ollama chat call. Reasoning ("think") is switched off: answers are short JSON and the
     smaller budget keeps a 9B model fast. The model is released after a minute so the GPU is free
     for speech-to-text and encoding."""
     s = get_settings()
-    m = model()
+    m = model(fast)
     body: dict = {
         "model": m,
         "stream": False,
@@ -86,14 +91,19 @@ def unload() -> None:
         return
     import contextlib
 
-    with contextlib.suppress(httpx.HTTPError):
-        httpx.post(f"{get_settings().ollama_url}/api/generate", json={"model": model(), "keep_alive": 0}, timeout=10)
+    for m in {model(), model(fast=True)}:
+        with contextlib.suppress(httpx.HTTPError):
+            httpx.post(f"{get_settings().ollama_url}/api/generate", json={"model": m, "keep_alive": 0}, timeout=10)
 
 
-def chat_json(system: str, user: str, temperature: float = 0.4, max_tokens: int = 1200) -> dict | list:
+def chat_json(
+    system: str, user: str, temperature: float = 0.4, max_tokens: int = 1200, fast: bool = False
+) -> dict | list:
+    """fast=True uses the quick model (copywriting, chat commands); the default is the best model."""
     content = _chat(
         [{"role": "system", "content": system}, {"role": "user", "content": user}],
         {"temperature": temperature, "num_predict": max_tokens},
+        fast=fast,
     )
     return _parse(content)
 
@@ -120,8 +130,8 @@ def _parse(content: str) -> dict | list:
         raise
 
 
-def engine_label() -> str:
-    return f"local LLM ({model()} via Ollama)"
+def engine_label(fast: bool = False) -> str:
+    return f"local LLM ({model(fast)} via Ollama)"
 
 
 # ----------------------------------------------------------------------------- ranking
@@ -141,6 +151,23 @@ def _rating(row: dict, key: str) -> float:
         return 5.0
 
 
+def _letter(n: int) -> str:
+    return chr(65 + n) if n < 26 else str(n)
+
+
+def _index(v, letters: bool = True) -> int | None:
+    """Excerpt letter ("B", "Excerpt B", "clip b") or plain number -> 0-based index."""
+    import re
+
+    t = str(v).strip()
+    if letters:
+        m = re.fullmatch(r"(?:excerpt|clip)?\s*([A-Za-z])", t, re.I)
+        if m:
+            return ord(m.group(1).upper()) - 65
+    m = re.search(r"\d+", t)
+    return int(m.group()) if m else None
+
+
 def _numbered(c, ctx) -> tuple[str, int, int]:
     """The excerpt as numbered sentences, with one sentence of context on each side.
     Returns (text, first_index, last_index) in ctx.sentences."""
@@ -151,7 +178,7 @@ def _numbered(c, ctx) -> tuple[str, int, int]:
     lines = []
     for k in range(lo, hi + 1):
         tag = "before" if k < c.s0 else "after" if k > c.s1 else "in"
-        lines.append(f"  <{k - lo}|{tag}> {ss[k].text}")
+        lines.append(f"  {k - lo} ({tag}) {ss[k].text}")
     return "\n".join(lines)[:1600], lo, hi
 
 
@@ -171,22 +198,26 @@ def semantic_rank(cands, ctx, batch: int = 4) -> None:
         for n, c in enumerate(group):
             text, lo, hi = _numbered(c, ctx)
             spans.append((lo, hi))
-            blocks.append(f"[{n}] ({c.duration:.0f}s)\n{text}")
+            blocks.append(f"Excerpt {_letter(n)} ({c.duration:.0f}s)\n{text}")
         fit_rule = f"fit (0-10: how well it matches the creator's request: {ask[:400]!r}), " if ask else ""
-        fit_example = '"fit": 7, ' if ask else ""
+        fit_example = '"fit": <0-10>, ' if ask else ""
         user = (
             f"Content type: {ctx.genre}. Requested mood: {ctx.prefs.mood}. Target length {ctx.prefs.min_dur:.0f}-"
             f"{ctx.prefs.max_dur:.0f}s.\n"
-            "Each excerpt is a list of numbered sentences: <n|in> are in the clip now, <n|before>/<n|after> are the "
-            "sentences around it. For each excerpt return: id; start and end (sentence numbers): where the BEST "
+            "Each excerpt (A, B, ...) is a list of numbered sentences: (in) sentences are in the clip now, (before) "
+            "and (after) are the sentences around it. Return one item for EVERY excerpt: id (the excerpt letter); "
+            "start and end (sentence numbers within that excerpt): where the BEST "
             "standalone clip should begin and end. Start on the line that grabs attention (skip filler, greetings and "
             "half-thoughts); end right after the payoff (the answer, punchline or reaction), not mid-thought. Keep the "
             f"original numbers if they're already right. Then rate that best version: {fit_rule}hook (0-10: would the "
             "first sentence stop someone scrolling YouTube Shorts), payoff (0-10: a satisfying point, punchline or "
             "reaction), standalone (0-10: makes sense without the rest of the video), mood_fit (0-10), title (max 60 "
-            "chars, accurate, specific, no clickbait, no emojis), why (max 18 words, concrete).\n"
-            f'Return {{"items": [{{"id": 0, "start": 1, "end": 4, {fit_example}"hook": 7, "payoff": 6, '
-            f'"standalone": 8, "mood_fit": 5, "title": "...", "why": "..."}}]}}\n\n' + "\n\n".join(blocks)
+            "chars, accurate, specific, no clickbait, no emojis), why (ONE sentence, max 18 words, concrete).\n"
+            "Every rating is a whole number where 0 = terrible, 5 = average, 10 = exceptional; it must agree with "
+            "your why. Judge each excerpt on its own words; don't reuse numbers from this instruction.\n"
+            f'Return {{"items": [{{"id": "<letter>", "start": <n>, "end": <n>, {fit_example}"hook": <0-10>, '
+            f'"payoff": <0-10>, "standalone": <0-10>, "mood_fit": <0-10>, "title": "<text>", "why": "<text>"}}]}}\n\n'
+            + "\n\n".join(blocks)
         )
         try:
             data = chat_json(RANK_SYSTEM, user, temperature=0.2, max_tokens=900)
@@ -195,11 +226,10 @@ def semantic_rank(cands, ctx, batch: int = 4) -> None:
             return
         rows = data.get("items", []) if isinstance(data, dict) else data
         for row in rows if isinstance(rows, list) else []:
-            try:
-                k = int(row.get("id"))
-                c = group[k]
-            except (TypeError, ValueError, IndexError):
+            k = _index(row.get("id"))
+            if k is None or k >= len(group):
                 continue
+            c = group[k]
             _refine(c, row, spans[k], ctx, highlights)
             mood_w = 0.15 if ctx.prefs.mood not in ("any", "") else 0.0
             fit_w = 0.4 if ask else 0.0
@@ -230,10 +260,10 @@ def _refine(c, row: dict, span: tuple[int, int], ctx, highlights) -> None:
     lo, hi = span
     if lo < 0:
         return
-    try:
-        a, b = lo + int(row.get("start")), lo + int(row.get("end"))
-    except (TypeError, ValueError):
+    sa, sb = _index(row.get("start"), letters=False), _index(row.get("end"), letters=False)
+    if sa is None or sb is None:
         return
+    a, b = lo + sa, lo + sb
     if not (lo <= a <= b <= hi) or (a, b) == (c.s0, c.s1):
         return
     start, end = highlights._padded(ctx, a, b)
@@ -257,23 +287,23 @@ def head_to_head(cands, ctx, top: int = 8) -> None:
     if len(rated) < 3:
         return
     pool = sorted(rated, key=lambda c: -(0.6 * c.heuristic + 0.4 * c.semantic))[:top]
-    items = "\n\n".join(f"[{n}] ({c.duration:.0f}s) {c.text[:500]}" for n, c in enumerate(pool))
+    items = "\n\n".join(f"Clip {_letter(n)} ({c.duration:.0f}s): {c.text[:500]}" for n, c in enumerate(pool))
     try:
         d = chat_json(
             RANK_SYSTEM,
             f"These {len(pool)} clips are candidates from the same video ({ctx.genre}). Order them from the one most "
             "likely to get views and watch-time as a YouTube Short to the least. Consider the opening line, the payoff "
-            'and whether it stands alone. Return {"order": [ids, best first]}\n\n' + items,
+            'and whether it stands alone. Return {"order": [clip letters, best first]}\n\n' + items,
             temperature=0.1,
             max_tokens=120,
         )
-        order = [int(x) for x in (d.get("order") or [])] if isinstance(d, dict) else []
+        order = [_index(x) for x in (d.get("order") or [])] if isinstance(d, dict) else []
     except Exception as e:  # noqa: BLE001
         log.info("head-to-head ranking failed: %s", e)
         return
     seen: list[int] = []
     for x in order:
-        if 0 <= x < len(pool) and x not in seen:
+        if x is not None and x < len(pool) and x not in seen:
             seen.append(x)
     for place, x in enumerate(seen):
         bonus = max(0.0, 8.0 - place * 8.0 / max(1, len(pool) - 1))

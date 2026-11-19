@@ -315,6 +315,7 @@ def _llm_fallback(raw: str, has_clip: bool) -> dict[str, Any]:
             f"Schema (one of): {ACTION_SCHEMA}\nRequest: {raw}",
             temperature=0.0,
             max_tokens=300,
+            fast=True,
         )
     except Exception:  # noqa: BLE001
         return {"type": "unsupported", "message": "I couldn't map that to an editing action."}

@@ -31,7 +31,7 @@ Ollama. No paid APIs, no keys.
 | Video | FFmpeg (NVENC when available, libx264 fallback) · libass caption burn-in |
 | Speech | faster-whisper with word timestamps (CUDA → CPU fallback) |
 | Vision | OpenCV face + motion tracking, histogram scene-cut detection |
-| AI editor | Ollama + `qwen3.5:9b` (optional; falls back to `qwen3.5:4b` / `gemma3:4b`): rates each clip, re-cuts it to the strongest opening line and payoff, ranks the best head to head, writes the copy |
+| AI editor | Ollama + `qwen3.5:9b` (optional; falls back to `qwen3.5:4b` / `gemma3:4b`; titles and copy use the faster `qwen3.5:4b`): rates each clip, re-cuts it to the strongest opening line and payoff, ranks the best head to head, writes the copy |
 
 ## What works today
 
@@ -174,6 +174,7 @@ i5-13450HX, RTX 3050 6 GB laptop, Windows 11:
 | Input | Result |
 |---|---|
 | 2:53 synthetic podcast, upload → 4 finished clips | 90 s total (whisper `small` on CUDA, gemma3:4b ranking + copy, NVENC renders) |
+| Same video with the qwen3.5:9b AI editor (re-cuts + head-to-head ranking) | 170 s total: ranking 88 s, copy with qwen3.5:4b 55 s, RTX 3050 6 GB |
 | 1:55 public-domain interview via direct link | 67 s total, 2 clips, face-tracked crops |
 | 3:11 YouTube link + custom instructions → 3 clips (Heat style, glow, zoom, progress bar) | 138 s total |
 | Transcription only, 1:55 of speech | 4.5 s (`small`, CUDA) · ~7 s (`base`, CPU) |

@@ -60,7 +60,8 @@ class Settings(BaseSettings):
 
     # --- optional local LLM (free, via Ollama) ------------------------------
     ollama_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = "qwen3.5:9b"
+    ollama_model: str = "qwen3.5:9b"  # picks, re-cuts and ranks clips
+    ollama_fast_model: str = "qwen3.5:4b"  # titles, descriptions, chat commands
     llm_enabled: bool = True
     llm_timeout_seconds: float = 120.0
 
