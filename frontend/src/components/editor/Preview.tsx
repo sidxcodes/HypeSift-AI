@@ -115,6 +115,24 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
       ctx.drawImage(v, (W - sw * fit) / 2, (H - sh * fit) / 2, sw * fit, sh * fit);
       return;
     }
+    if (mode === "facecam" && rf.facecam && (e.aspect === "9:16" || e.aspect === "4:5")) {
+      // gameplay layout: webcam on top (cover-cropped), centre of the game below
+      const topH = Math.round(H * 0.4);
+      const [bx, by, bw, bh] = rf.facecam.box;
+      const fx = bx * sw;
+      const fy = by * sh;
+      const fw = bw * sw;
+      const fh = bh * sh;
+      const s = Math.max(W / fw, topH / fh);
+      const vw = W / s;
+      const vh = topH / s;
+      ctx.drawImage(v, fx + (fw - vw) / 2, fy + (fh - vh) / 2, vw, vh, 0, 0, W, topH);
+      const [gw, gh] = cropBox(sw, sh, W / (H - topH), 1);
+      let gx = (sw - gw) / 2;
+      if (fx + fw > gx && fx < gx + gw) gx = fx + fw / 2 < sw / 2 ? Math.max(gx, Math.min(fx + fw, sw - gw)) : Math.min(gx, Math.max(fx - gw, 0));
+      ctx.drawImage(v, gx, (sh - gh) / 2, gw, gh, 0, topH, W, H - topH);
+      return;
+    }
     if (mode === "split" && rf.split && e.aspect === "9:16") {
       const halfH = H / 2;
       const [cw, ch] = cropBox(sw, sh, W / halfH, 1);
@@ -211,6 +229,17 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
             keywords={edits.captions.keywords}
             overlays={edits.overlays}
             enabled={edits.captions.enabled}
+            transition={edits.captions.transition}
+            effect={edits.captions.effect}
+            progressBar={edits.progress_bar?.enabled ? edits.progress_bar.color ?? "#C6F432" : null}
+            duration={end - start}
+            seam={
+              edits.crop.mode === "facecam" && reframe.facecam && (edits.aspect === "9:16" || edits.aspect === "4:5")
+                ? 0.4
+                : edits.crop.mode === "split" && reframe.split && edits.aspect === "9:16"
+                  ? 0.5
+                  : null
+            }
           />
           {!ready && <div className="absolute inset-0 grid place-items-center text-sm text-white/70">Loading source…</div>}
         </div>

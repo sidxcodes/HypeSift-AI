@@ -398,6 +398,7 @@ export default function EditorPage() {
                     { value: "manual", label: "Manual position" },
                     { value: "center", label: "Centre crop" },
                     ...(clip.reframe.split ? [{ value: "split", label: "Two speakers stacked" }] : []),
+                    ...(clip.reframe.facecam ? [{ value: "facecam", label: "Gameplay: facecam on top" }] : []),
                     { value: "fit", label: "Fit whole frame (blurred fill)" },
                   ]}
                 />

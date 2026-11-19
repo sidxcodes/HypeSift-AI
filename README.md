@@ -69,7 +69,10 @@ Ollama. No paid APIs, no keys.
   *Entertain*. Each clip shows a viral-potential estimate with a checklist: opening line, hook text,
   15–45 s length, 9:16, captions, a face on screen, a clean loop, and zoom/progress bar, each with a fix.
 - **Reframing:** 9:16, 1:1, 4:5, 16:9; smart (face/motion "camera operator" path), manual with drag,
-  centre, fit-with-blurred-fill, and a stacked two-speaker layout when two faces are detected.
+  centre, fit-with-blurred-fill, a stacked two-speaker layout when two faces are detected, and a
+  **gameplay / stream layout**: HypeSift finds a streamer's webcam overlay (a small, live face that stays
+  put across the whole video, snapped to the overlay's border), puts it on top and the game or shared screen
+  below, with captions on the join. Picked automatically, or forced from Framing.
 - **Editor:** canvas preview, loudness timeline with word-snapping trim handles, caption/format/text/audio
   panels, title overlay, watermark, fades, gain and loudness normalisation, silence removal, undo/redo,
   re-render and download.

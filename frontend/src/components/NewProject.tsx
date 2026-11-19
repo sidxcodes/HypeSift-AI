@@ -616,7 +616,8 @@ export function NewProject() {
                 value={s.crop_mode}
                 onChange={(v) => set("crop_mode", v as GenerateSettings["crop_mode"])}
                 options={[
-                  { value: "auto", label: "Smart: follow faces and action" },
+                  { value: "auto", label: "Smart: auto-pick the best layout" },
+                  { value: "facecam", label: "Gameplay / stream: facecam on top" },
                   { value: "center", label: "Center crop" },
                   { value: "fit", label: "Fit whole frame (blurred fill)" },
                 ]}

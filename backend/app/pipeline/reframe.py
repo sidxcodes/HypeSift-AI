@@ -4,7 +4,8 @@ Samples the clip at 3 fps, finds faces with OpenCV's bundled Haar cascades (fron
 profile, no downloads), falls back to the motion centroid, then turns the noisy
 per-frame subject position into a calm "camera operator" path: hold still while the
 subject stays inside a dead zone, pan smoothly when it leaves. Also detects two
-stable, well-separated faces and proposes a stacked dual-speaker layout.
+stable, well-separated faces and proposes a stacked dual-speaker layout, and finds a
+streamer's webcam overlay for the gameplay layout (facecam on top, game below).
 """
 
 from __future__ import annotations
@@ -86,9 +87,145 @@ def analyze(src: Path, start: float, end: float) -> dict:
         "path": path,
         "face_ratio": round(face_ratio, 2),
         "split": _split_layout(all_faces),
+        "facecam": detect_facecam(src, start, end),
         "src_w": W,
         "src_h": H,
     }
+
+
+FACECAM_SAMPLES = 16
+FACECAM_WIDTH = 960
+
+
+def detect_facecam(src: Path, start: float, end: float, samples: int = FACECAM_SAMPLES) -> dict | None:
+    """Find a streamer's webcam overlay: a small, live face that stays in the same place for much
+    of the video, sitting on top of other content (gameplay, a shared screen).
+
+    Returns {"box": [x, y, w, h] (0-1, source frame), "face": [cx, cy, size], "snapped": bool,
+    "content_motion": float} or None. The box is snapped to the overlay's border when one is visible
+    in the time-averaged frame (static borders stay sharp while the game behind them blurs out).
+    """
+    dur = max(0.5, end - start)
+    fps = min(2.0, samples / dur)
+    try:
+        frames, _ = ffmpeg.read_frames(src, start, end, fps, FACECAM_WIDTH)
+    except ffmpeg.MediaError:
+        return None
+    if len(frames) < 4:
+        return None
+    H, W = frames.shape[1:]
+    min_side = max(20, H // 22)
+    # cluster detections by position: each cluster is one face location over time
+    clusters: list[dict] = []
+    for i, fr in enumerate(frames):
+        g = cv2.equalizeHist(fr)
+        for x, y, w, h in _front.detectMultiScale(g, scaleFactor=1.1, minNeighbors=5, minSize=(min_side, min_side)):
+            c = (x + w / 2, y + h / 2, float(w), float(h))
+            for cl in clusters:
+                m = cl["mean"]
+                if abs(c[0] - m[0]) < W * 0.06 and abs(c[1] - m[1]) < H * 0.08 and 0.6 < c[3] / m[3] < 1.6:
+                    cl["dets"].append(c)
+                    cl["frames"].add(i)
+                    cl["mean"] = np.median(np.array(cl["dets"]), axis=0)
+                    break
+            else:
+                clusters.append({"dets": [c], "frames": {i}, "mean": np.array(c)})
+    best = None
+    for cl in clusters:
+        cx, cy, fw, fh = (float(v) for v in cl["mean"])
+        if len(cl["frames"]) < max(3, len(frames) * 0.3) or fh / H > 0.24:
+            continue  # too rare, or a big face (talking head / podcast: normal reframing handles it)
+        # A real person moves a little; faces in game art, posters or thumbnails don't.
+        x0, y0 = int(max(0, cx - fw / 2)), int(max(0, cy - fh / 2))
+        patch = frames[:, y0 : int(y0 + fh), x0 : int(x0 + fw)].astype(np.float32)
+        live = float(patch.std(axis=0).mean()) if patch.size else 0.0
+        if live < 3.0:
+            continue
+        score = len(cl["frames"]) * min(live, 12)
+        if best is None or score > best[0]:
+            best = (score, cx, cy, fw, fh)
+    if best is None:
+        return None
+    _, cx, cy, fw, fh = best
+    # Content elsewhere must change (gameplay / screen share), otherwise it's just a wide shot.
+    mask = np.ones((H, W), bool)
+    mask[int(max(0, cy - 2.5 * fh)) : int(min(H, cy + 3 * fh)), int(max(0, cx - 3 * fw)) : int(min(W, cx + 3 * fw))] = (
+        False
+    )
+    diffs = [float(np.mean(cv2.absdiff(a, b)[mask])) for a, b in zip(frames, frames[1:], strict=False)]
+    content_motion = float(np.median(diffs)) if diffs else 0.0
+
+    box, snapped = _facecam_box(frames, cx, cy, fw, fh)
+    x0, y0, x1, y1 = box
+    return {
+        "box": [round(x0 / W, 4), round(y0 / H, 4), round((x1 - x0) / W, 4), round((y1 - y0) / H, 4)],
+        "face": [round(cx / W, 4), round(cy / H, 4), round(fh / H, 4)],
+        "snapped": snapped,
+        "content_motion": round(content_motion, 2),
+    }
+
+
+def _edge_peak(profile: np.ndarray, lo: int, hi: int, outward: int) -> int | None:
+    """The border closest to the face in profile[lo:hi] that clearly stands out.
+
+    ``outward`` is +1 when searching away from the face towards higher indices, -1 towards lower.
+    Overlays are often followed by other static UI lines (menus, panels), so the nearest clear edge
+    is the webcam frame, not necessarily the strongest one.
+    """
+    lo, hi = max(0, lo), min(len(profile), hi)
+    if hi - lo < 3:
+        return None
+    seg = profile[lo:hi]
+    base = float(np.median(seg)) + 1e-6
+    strong = max(float(seg.max()) * 0.55, base * 2.4, 6.0)
+    idx = range(len(seg)) if outward > 0 else range(len(seg) - 1, -1, -1)
+    for i in idx:
+        if seg[i] >= strong:
+            # settle on the local maximum of this edge (edges are 2-3 px wide)
+            j = i
+            while 0 <= j + outward < len(seg) and seg[j + outward] > seg[j]:
+                j += outward
+            return lo + j
+    return None
+
+
+def _facecam_box(
+    frames: np.ndarray, cx: float, cy: float, fw: float, fh: float
+) -> tuple[tuple[int, int, int, int], bool]:
+    H, W = frames.shape[1:]
+    mean = frames.astype(np.float32).mean(axis=0)
+    gx = np.abs(cv2.Sobel(mean, cv2.CV_32F, 1, 0, ksize=3))
+    gy = np.abs(cv2.Sobel(mean, cv2.CV_32F, 0, 1, ksize=3))
+    rows = slice(int(max(0, cy - 1.2 * fh)), int(min(H, cy + 1.8 * fh)))
+    cols = slice(int(max(0, cx - 1.5 * fw)), int(min(W, cx + 1.5 * fw)))
+    vprof = gx[rows].mean(axis=0)  # vertical borders, per column
+    hprof = gy[:, cols].mean(axis=1)  # horizontal borders, per row
+    left = _edge_peak(vprof, int(cx - 4.5 * fw), int(cx - 1.0 * fw), -1)
+    right = _edge_peak(vprof, int(cx + 1.0 * fw), int(cx + 4.5 * fw), 1)
+    top = _edge_peak(hprof, int(cy - 3.2 * fh), int(cy - 0.9 * fh), -1)
+    bottom = _edge_peak(hprof, int(cy + 1.2 * fh), int(cy + 4.0 * fh), 1)
+    # A frame edge is a border too: overlays usually sit in a corner.
+    if left is None and cx - 4.5 * fw <= 0:
+        left = 0
+    if top is None and cy - 3.2 * fh <= 0:
+        top = 0
+    if right is None and cx + 4.5 * fw >= W:
+        right = W
+    if bottom is None and cy + 4.0 * fh >= H:
+        bottom = H
+    # Fill in missing sides with a webcam-shaped box around the face.
+    x0 = left if left is not None else int(cx - 1.9 * fw)
+    x1 = right if right is not None else int(cx + 1.9 * fw)
+    y0 = top if top is not None else int(cy - 1.5 * fh)
+    y1 = bottom if bottom is not None else int(cy + 1.9 * fh)
+    x0, y0, x1, y1 = max(0, x0), max(0, y0), min(W, x1), min(H, y1)
+    snapped = sum(v is not None for v in (left, right, top, bottom)) >= 3
+    # sanity: the box must comfortably contain the face and not be most of the frame
+    if (x1 - x0) < 1.6 * fw or (y1 - y0) < 1.6 * fh or (x1 - x0) * (y1 - y0) > 0.45 * W * H:
+        x0, x1 = int(max(0, cx - 1.9 * fw)), int(min(W, cx + 1.9 * fw))
+        y0, y1 = int(max(0, cy - 1.5 * fh)), int(min(H, cy + 1.9 * fh))
+        snapped = False
+    return (x0, y0, x1, y1), snapped
 
 
 def _fill(vals: list[float | None]) -> np.ndarray:

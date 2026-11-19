@@ -37,7 +37,7 @@ class GenerateSettings(BaseModel):
     mood: Literal["any", "funny", "emotional", "intense", "informative", "inspiring"] = "any"
     position: Literal["any", "start", "middle", "end"] = "any"
     aspect: Literal["9:16", "1:1", "4:5", "16:9"] = "9:16"
-    crop_mode: Literal["auto", "center", "fit"] = "auto"
+    crop_mode: Literal["auto", "center", "fit", "facecam"] = "auto"
     captions: bool = True
     caption_preset: str = Field(default="bold_creator", max_length=40)
     caption_transition: Literal["none", "fade_up", "fade_down", "fade_left", "fade_right", "bounce"] = "none"

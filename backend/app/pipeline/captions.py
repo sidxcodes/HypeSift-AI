@@ -449,6 +449,7 @@ def build_ass(
     keywords: set[str] | None = None,
     duration: float | None = None,
     progress_bar: str | None = None,
+    seam: float | None = None,
 ) -> str:
     """Return a complete ASS document. ``style`` None disables captions (overlays only).
     ``progress_bar`` is a hex colour for a bar that fills along the bottom edge (None = off)."""
@@ -488,6 +489,9 @@ def build_ass(
             f"{border_style},{outline:.1f},{style['shadow'] * k:.1f},{align},{int(70 * k)},{int(70 * k)},{margin_v},1"
         )
         anchor = (width // 2, {8: margin_v, 5: height // 2}.get(align, height - margin_v), align)
+        if seam is not None and style["position"] in ("lower", "bottom", "middle"):
+            # stacked layouts (facecam + game, two speakers): captions sit on the join between panels
+            anchor = (width // 2, int(height * seam), 5)
         events += _caption_events(chunks, style, keywords or set(), k, anchor)
     lines.append(
         f"Style: Over,Poppins ExtraBold,{int(64 * k)},&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,0,0,0,0,"

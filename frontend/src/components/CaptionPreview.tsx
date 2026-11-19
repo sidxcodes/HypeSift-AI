@@ -93,6 +93,7 @@ export function CaptionOverlay({
   effect = "none",
   progressBar,
   duration,
+  seam,
 }: {
   chunks: Chunk[];
   style: CaptionStyle;
@@ -105,11 +106,13 @@ export function CaptionOverlay({
   effect?: Effect;
   progressBar?: string | null;
   duration?: number;
+  seam?: number | null;
 }) {
   const scale = width / 1080;
   const chunk = enabled ? chunks.find((c) => t >= c.s && t < Math.max(c.e, c.s + 0.2)) : undefined;
   const kw = new Set((keywords ?? []).map((k) => k.toLowerCase()));
-  const pos = POS[style.position] ?? POS.bottom;
+  const onSeam = seam != null && style.position !== "top";
+  const pos = onSeam ? { top: `${seam * 100}%`, center: true } : POS[style.position] ?? POS.bottom;
   const ts = textStyle(style, scale, effect);
   const chunkIndex = chunk ? chunks.indexOf(chunk) : -1;
   const titleOv = (overlays ?? []).filter((o) => o.kind === "title" && o.text && t >= (o.start ?? 0) && t < (o.end ?? 1e9));
@@ -195,7 +198,7 @@ export function CaptionOverlay({
         <div
           className="absolute inset-x-0 flex justify-center text-center"
           style={{
-            top: pos.center ? "50%" : pos.top,
+            top: onSeam ? pos.top : pos.center ? "50%" : pos.top,
             bottom: pos.bottom,
             transform: pos.center ? "translateY(-50%)" : undefined,
             padding: `0 ${70 * scale}px`,

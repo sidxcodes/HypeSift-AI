@@ -157,19 +157,23 @@ def render_clip(ctx: JobContext | None, clip: Clip, project: Project, words, on_
     probe = ffmpeg.Probe(**project.media["probe"])
     edits = render.merged_edits(clip.edits)
     rf = clip.reframe or {}
-    if edits["crop"]["mode"] in ("auto", "split") and (rf.get("range") != [clip.start, clip.end]):
+    if edits["crop"]["mode"] in ("auto", "split", "facecam") and (rf.get("range") != [clip.start, clip.end]):
         rf = reframe.analyze(src, clip.start, clip.end)
         rf["range"] = [clip.start, clip.end]
+        # The webcam overlay sits in the same place for the whole stream: the video-wide detection
+        # also covers clips where the streamer briefly looks away.
+        rf["facecam"] = rf.get("facecam") or (project.media or {}).get("facecam")
         clip.reframe = rf
-        if (
-            edits["crop"]["mode"] == "auto"
-            and rf.get("split")
-            and edits["aspect"] == "9:16"
-            and project.analysis.get("genre") == "podcast"
-            and not (clip.edits or {}).get("crop_locked")
-        ):
+        unlocked = edits["crop"]["mode"] == "auto" and not (clip.edits or {}).get("crop_locked")
+        if unlocked and rf.get("facecam") and edits["aspect"] in ("9:16", "4:5"):
+            # A streamer's webcam over gameplay or a screen share: keep both, cam on top.
+            edits["crop"]["mode"] = "facecam"
+            clip.edits = {**(clip.edits or {}), "crop": {**edits["crop"]}}
+        elif unlocked and rf.get("split") and edits["aspect"] == "9:16" and project.analysis.get("genre") == "podcast":
             edits["crop"]["mode"] = "split"
             clip.edits = {**(clip.edits or {}), "crop": {**edits["crop"]}}
+    if edits["crop"]["mode"] == "facecam" and not rf.get("facecam"):
+        edits["crop"]["mode"] = "auto"  # asked for, but no webcam found in this clip
     version = int(time.time())
     out_key = ckey(clip.id, f"clip-{version}.mp4")
     work = storage.path(f"work/{clip.id}-{version}")
@@ -408,6 +412,13 @@ def generate(ctx: JobContext) -> None:
     ctx.stage("analyze", "Measuring audio energy, motion and scene changes")
     sig = signals.compute(src, wav if probe.has_audio else None, probe.duration)
     save_signals(p.id, sig)
+    ctx.progress(0.8, "Looking for a streamer facecam")
+    facecam = reframe.detect_facecam(src, 0, probe.duration, samples=48)
+    with SessionLocal() as db:
+        pp = db.get(Project, p.id)
+        pp.media = {**pp.media, "facecam": facecam}
+        db.commit()
+        p = pp
     wav.unlink(missing_ok=True)
 
     # 5. rank -----------------------------------------------------------------

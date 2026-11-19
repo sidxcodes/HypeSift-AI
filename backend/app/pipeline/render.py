@@ -158,6 +158,19 @@ def output_size(aspect: str, quality: str) -> tuple[int, int]:
     return w, h
 
 
+FACECAM_TOP = 0.4  # share of the frame the webcam gets in the gameplay layout
+
+
+def layout_seam(edits: dict, rf: dict) -> float | None:
+    """Where two stacked panels meet (fraction of height), for captions to sit on; None if one panel."""
+    mode = (edits.get("crop") or {}).get("mode")
+    if mode == "facecam" and rf.get("facecam") and edits.get("aspect") in ("9:16", "4:5"):
+        return FACECAM_TOP
+    if mode == "split" and rf.get("split") and edits.get("aspect") == "9:16":
+        return 0.5
+    return None
+
+
 def build_video_chain(probe: ffmpeg.Probe, edits: dict, rf: dict, W: int, H: int) -> str:
     """Filter chain from [0:v] to [vr] (reframed, scaled)."""
     crop = edits["crop"]
@@ -165,6 +178,29 @@ def build_video_chain(probe: ffmpeg.Probe, edits: dict, rf: dict, W: int, H: int
     aspect = edits["aspect"]
     zoom = max(1.0, min(3.0, float(crop.get("zoom") or 1.0)))
     sw, sh = probe.width, probe.height
+    if mode == "facecam" and rf.get("facecam") and aspect in ("9:16", "4:5"):
+        # Streamer layout: their webcam overlay on top, the game (or shared screen) below.
+        top_h = int(H * FACECAM_TOP) // 2 * 2
+        bot_h = H - top_h
+        bx, by, bw, bh = rf["facecam"]["box"]
+        fx, fy = int(bx * sw) // 2 * 2, int(by * sh) // 2 * 2
+        fw, fh = max(16, int(bw * sw) // 2 * 2), max(16, int(bh * sh) // 2 * 2)
+        fw, fh = min(fw, sw - fx), min(fh, sh - fy)
+        gw, gh = crop_for_ratio(sw, sh, W / bot_h)
+        gx, gy = (sw - gw) // 2, (sh - gh) // 2
+        # keep the webcam out of the game panel: slide the crop just past it when there's room
+        cam_l, cam_r = fx, fx + fw
+        if cam_r > gx and cam_l < gx + gw:
+            if (cam_l + cam_r) / 2 < sw / 2:
+                gx = max(gx, min(cam_r, sw - gw))
+            else:
+                gx = min(gx, max(cam_l - gw, 0))
+        gx, gy = gx // 2 * 2, gy // 2 * 2
+        return (
+            f"[0:v]split=2[ca][ga];[ca]crop={fw}:{fh}:{fx}:{fy},"
+            f"scale={W}:{top_h}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{top_h}[ta];"
+            f"[ga]crop={gw}:{gh}:{gx}:{gy},scale={W}:{bot_h}:flags=lanczos[tb];[ta][tb]vstack=2,setsar=1[vr]"
+        )
     if mode == "split" and rf.get("split") and aspect == "9:16":
         half_h = H // 2
         cw, ch = crop_for_ratio(sw, sh, W / half_h)
@@ -250,7 +286,15 @@ def render(
         overlays.append(o)
     pb = edits.get("progress_bar") or {}
     ass = cap.build_ass(
-        W, H, mapped, style, overlays, keywords, out_dur, progress_bar=pb.get("color") if pb.get("enabled") else None
+        W,
+        H,
+        mapped,
+        style,
+        overlays,
+        keywords,
+        out_dur,
+        progress_bar=pb.get("color") if pb.get("enabled") else None,
+        seam=layout_seam(edits, rf),
     )
     (work_dir / "captions.ass").write_text(ass, encoding="utf-8")
     srt = cap.build_srt(mapped, uppercase=bool(style and style.get("uppercase")))

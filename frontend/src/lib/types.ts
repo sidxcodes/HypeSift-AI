@@ -33,7 +33,7 @@ export type GenerateSettings = {
   mood: string;
   position: string;
   aspect: "9:16" | "1:1" | "4:5" | "16:9";
-  crop_mode: "auto" | "center" | "fit";
+  crop_mode: "auto" | "center" | "fit" | "facecam";
   captions: boolean;
   caption_preset: string;
   caption_transition: Transition;
@@ -90,7 +90,7 @@ export type Overlay = { kind: "title" | "watermark"; text: string; start: number
 
 export type Edits = {
   aspect: "9:16" | "1:1" | "4:5" | "16:9";
-  crop: { mode: "auto" | "manual" | "center" | "split" | "fit"; x: number; y: number; zoom: number };
+  crop: { mode: "auto" | "manual" | "center" | "split" | "fit" | "facecam"; x: number; y: number; zoom: number };
   captions: {
     enabled: boolean;
     preset: string;
@@ -131,6 +131,7 @@ export type Reframe = {
   path?: [number, number, number][];
   face_ratio?: number;
   split?: { left: number; right: number } | null;
+  facecam?: { box: [number, number, number, number]; face: [number, number, number]; snapped: boolean } | null;
   range?: [number, number];
 };
 
