@@ -165,6 +165,8 @@ class Prefs:
     instructions: str = ""  # free text, also given to the LLM editor
     # joins between separately downloaded sections of a long video: no clip may cross one
     barriers: list[float] = field(default_factory=list)
+    # the video file, so the vision model can look at moments that have little or no speech
+    media_src: str = ""
     pad_before: float = 0.25
     pad_after: float = 0.45
 

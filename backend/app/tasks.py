@@ -28,6 +28,7 @@ from .pipeline import (
     render,
     signals,
     sites,
+    thumbnail,
     transcribe,
 )
 from .pipeline.highlights import Prefs
@@ -365,6 +366,48 @@ def _render_and_publish(ctx: JobContext, project_id: str, clip_ids: list[str], w
             )
             db.commit()
         ctx.progress((i + 1) / len(clip_ids), f"Publishing copy {i + 1} of {len(clip_ids)}")
+    ctx.stage("thumbs", "Designing thumbnails")
+    for i, cid in enumerate(clip_ids):
+        ctx.check_cancel()
+        with SessionLocal() as db:
+            clip = db.get(Clip, cid)
+            if clip.render_status == "rendered":
+                try:
+                    make_clip_thumbnails(clip, clip.project, allow_llm=settings.get("use_llm", True))
+                except Exception:  # noqa: BLE001 - a thumbnail problem never fails the clips
+                    log.exception("thumbnails failed for %s", cid)
+                db.commit()
+        ctx.progress((i + 1) / len(clip_ids), f"Thumbnails {i + 1} of {len(clip_ids)}")
+
+
+def make_clip_thumbnails(clip: Clip, project: Project, custom_text: str | None = None, allow_llm: bool = True) -> None:
+    """AI thumbnails (3 designs x vertical + wide) for a rendered clip; replaces the previous set."""
+    version = int(time.time())
+    prefix = ckey(clip.id, f"thumbs-{version}")
+    work = storage.path(f"work/{clip.id}-thumbs-{version}")
+    try:
+        res = thumbnail.make_thumbnails(
+            source_path(project),
+            ffmpeg.Probe(**project.media["probe"]),
+            clip.start,
+            clip.end,
+            render.merged_edits(clip.edits),
+            clip.reframe or {},
+            clip.title,
+            clip.text,
+            storage.path(prefix),
+            work,
+            custom_text=custom_text,
+            allow_llm=allow_llm,
+        )
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    old = (clip.edits or {}).get("_thumbs") or {}
+    files = {d: {sz: f"{prefix}/{p.name}" for sz, p in by.items()} for d, by in res["files"].items()}
+    clip.edits = {**(clip.edits or {}), "_thumbs": {"text": res["text"], "t": res["t"], "files": files}}
+    if old.get("prefix"):
+        storage.delete_prefix(old["prefix"])
+    clip.edits = {**clip.edits, "_thumbs": {**clip.edits["_thumbs"], "prefix": prefix}}
 
 
 # ----------------------------------------------------------------------------- handlers
@@ -394,6 +437,7 @@ def generate(ctx: JobContext) -> None:
             "rank": 10 if use_llm else 4,
             "render": 34,
             "publish": 8 if use_llm else 2,
+            "thumbs": 6,
         }
     )
 
@@ -559,6 +603,7 @@ def generate(ctx: JobContext) -> None:
         bias = feedback_bias(db, ctx.user_id)
     prefs = prefs_from(settings)
     prefs.barriers = [s["start"] for s in (p.media or {}).get("sections", [])[1:]]
+    prefs.media_src = str(src)
     rank_words = load_rank_words(p.id) or tr.words
     comp_cands = compare.candidates(comp, prefs.min_dur, prefs.max_dur, sig.motion)[: prefs.count] if comp else []
     if comp_cands:
@@ -626,7 +671,7 @@ def discover(ctx: JobContext) -> None:
         if k in ("count", "min_dur", "max_dur", "mood", "genre", "position", "query") and v is not None
     }
     use_llm = settings.get("use_llm", True) and llm.status()["available"]
-    ctx.plan({"rank": 15 if use_llm else 5, "render": 70, "publish": 10})
+    ctx.plan({"rank": 15 if use_llm else 5, "render": 70, "publish": 10, "thumbs": 6})
     ctx.stage("rank", "Searching the video for your request")
     tr = load_transcript(p.id)
     rank_words = load_rank_words(p.id) or tr.words
@@ -637,6 +682,7 @@ def discover(ctx: JobContext) -> None:
     with SessionLocal() as db:
         bias = feedback_bias(db, ctx.user_id)
         prefs.barriers = [s["start"] for s in (db.get(Project, p.id).media or {}).get("sections", [])[1:]]
+        prefs.media_src = str(source_path(db.get(Project, p.id)))
     cands, hctx = highlights.discover(rank_words, sig, prefs, bias, semantic=llm.semantic_rank if use_llm else None)
     fresh = []
     for c in cands:
@@ -671,6 +717,18 @@ def render_job(ctx: JobContext) -> None:
         db.commit()
         words = load_transcript(project.id).words
         render_clip(ctx, clip, project, words, on_progress=ctx.progress)
+        db.commit()
+
+
+@handler("thumbs")
+def thumbs_job(ctx: JobContext) -> None:
+    ctx.plan({"thumbs": 1})
+    ctx.stage("thumbs", "Designing thumbnails")
+    with SessionLocal() as db:
+        clip = db.get(Clip, ctx.clip_id)
+        if not clip or clip.render_status != "rendered":
+            raise UserFacingError("Render the clip first.")
+        make_clip_thumbnails(clip, clip.project, custom_text=ctx.payload.get("text") or None)
         db.commit()
 
 

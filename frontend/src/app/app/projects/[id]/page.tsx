@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Assistant } from "@/components/Assistant";
-import { ClipDrawer } from "@/components/ClipDrawer";
+import { ClipDrawer, type DrawerTab } from "@/components/ClipDrawer";
 import { ClipRow } from "@/components/ClipRow";
 import { PostDrawer } from "@/components/PostDrawer";
 import { useToast } from "@/components/toast";
@@ -73,6 +73,7 @@ export default function ProjectPage() {
   const [sort, setSort] = useState<Sort>("general");
   const [compact, setCompact] = useState(false);
   const [detailsId, setDetailsId] = useState<string | null>(null);
+  const [detailsTab, setDetailsTab] = useState<DrawerTab>("fix");
   const [postId, setPostId] = useState<string | null>(null);
   const [ask, setAsk] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -254,7 +255,10 @@ export default function ProjectPage() {
               goal={sort}
               compact={compact}
               onPost={() => setPostId(c.id)}
-              onDetails={() => setDetailsId(c.id)}
+              onDetails={(tab) => {
+                setDetailsTab(tab ?? "fix");
+                setDetailsId(c.id);
+              }}
               onFavorite={() => api.favorite(c.id, !c.favorite).then(load)}
               onDelete={() => removeClip(c)}
               selected={selected.has(c.id)}
@@ -306,7 +310,7 @@ export default function ProjectPage() {
         />
       ) : null}
 
-      <ClipDrawer clip={all.find((c) => c.id === detailsId) ?? null} onClose={() => setDetailsId(null)} onChange={load} />
+      <ClipDrawer clip={all.find((c) => c.id === detailsId) ?? null} onClose={() => setDetailsId(null)} onChange={load} initialTab={detailsTab} />
       <PostDrawer clip={all.find((c) => c.id === postId) ?? null} onClose={() => setPostId(null)} onChange={load} />
     </div>
   );

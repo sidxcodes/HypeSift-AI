@@ -10,7 +10,7 @@ export type BrandKit = {
 export type JobStage = { key: string; status: "pending" | "running" | "done" | "failed"; started_at?: string };
 export type Job = {
   id: string;
-  kind: "generate" | "render" | "publish" | "discover";
+  kind: "generate" | "render" | "publish" | "discover" | "thumbs";
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   stage: string;
   progress: number;
@@ -188,6 +188,10 @@ export type Clip = {
   post: PostPlan;
   insights: Insights;
   original_start: number | null;
+  thumbnails: {
+    text: string;
+    designs: { design: string; label: string; vertical?: string | null; wide?: string | null; vertical_download?: string | null; wide_download?: string | null }[];
+  } | null;
 };
 
 export type Project = {

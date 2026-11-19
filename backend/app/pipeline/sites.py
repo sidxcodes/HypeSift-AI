@@ -19,6 +19,7 @@ import contextlib
 import copy
 import logging
 import os
+import shutil
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -127,6 +128,9 @@ def _base_opts() -> dict[str, Any]:
     }
     if s.ytdlp_cookies_browser:
         opts["cookiesfrombrowser"] = (s.ytdlp_cookies_browser,)
+    node = shutil.which("node")
+    if node:  # YouTube needs a JavaScript runtime to unlock every format; Node.js is already installed
+        opts["js_runtimes"] = {"node": {"path": node}}
     return opts
 
 

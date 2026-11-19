@@ -53,6 +53,19 @@ Ollama. No paid APIs, no keys.
 - **Any language:** non-English speech is translated to English for moment-picking, titles and copy;
   burned-in captions use the site's own captions in the spoken language (cleaner than a small speech model)
   or, if you choose, English.
+- **Comparison videos ("A vs B"):** split screens are re-stacked top/bottom, and alternating stretches of
+  A and B (told apart by the version badge) are paired so both play at once, like comparison Shorts. The local
+  vision model names each side from the title and writes the scene into the clip title; name labels on
+  each panel. Real run: "GTA 6 vs Cyberpunk 2077" → 6 labelled comparison clips in 4.5 min.
+- **Fix with AI:** tell the AI what's wrong with a clip in your own words ("start 2 seconds earlier", "it ends
+  mid-sentence", "the captions say X but it should be Y", "make the title funnier", "show the whole frame").
+  Common requests are understood instantly by rules, anything else by the local LLM reading the clip's timed
+  transcript; boundaries snap to sentence starts/ends like a human editor would, and the clip re-renders.
+- **AI thumbnails:** for every clip, the vision model picks the most eye-catching frame (after a sharpness and
+  face check), the LLM writes 2-5 punchy words, and three designs (Bold, Pop, Clean) are made in 1080x1920 and
+  1280x720, with text sized to fit and kept off faces. Regenerate with your own text.
+- **Sees quiet moments:** moments with little speech (gameplay, sport, music) are rated by the vision model
+  looking at them, not only by audio and motion.
 - **Import → Customize → Generate:** paste a link, optionally add **custom instructions** ("find the
   moments where she shares concrete pricing advice"), then customize: language, clip duration, number of
   clips, template, size, caption transition/style/effect, auto-highlighted keywords, auto-zoom, logo and
@@ -153,7 +166,7 @@ whole flow from the command line, and `backend/scripts/smoke_pipeline.py` runs t
 ## Tests and checks
 
 ```bash
-cd backend && pytest -q && ruff check app tests scripts      # 108 tests incl. full HTTP end-to-end runs
+cd backend && pytest -q && ruff check app tests scripts      # 152 tests incl. full HTTP end-to-end runs
 cd frontend && npx tsc --noEmit && npm run lint && npm run build
 ```
 

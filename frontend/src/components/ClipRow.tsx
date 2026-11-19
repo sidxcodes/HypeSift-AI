@@ -11,11 +11,13 @@ import {
   Flame,
   Gauge,
   Heart,
+  ImageIcon,
   Loader2,
   MessageCircle,
   Pencil,
   Rows3,
   Send,
+  Sparkles,
   Star,
   Trash2,
   Zap,
@@ -61,7 +63,7 @@ export function ClipRow({
   goal: Goal | "time" | "length";
   compact: boolean;
   onPost: () => void;
-  onDetails: () => void;
+  onDetails: (tab?: "fix" | "thumbs" | "score") => void;
   onFavorite: () => void;
   onDelete: () => void;
   selected: boolean;
@@ -90,7 +92,7 @@ export function ClipRow({
       />
       <div className={cx("relative shrink-0 self-start overflow-hidden rounded-xl bg-black", compact ? "w-[104px]" : "w-[150px]")}>
         {clip.video_url ? (
-          <video src={clip.video_url} poster={clip.thumb_url ?? undefined} controls playsInline preload="none" className="aspect-[9/16] w-full object-cover" />
+          <video src={clip.video_url} poster={clip.thumbnails?.designs.find((d) => d.design === "bold")?.vertical ?? clip.thumb_url ?? undefined} controls playsInline preload="none" className="aspect-[9/16] w-full object-cover" />
         ) : (
           <div className="grid aspect-[9/16] place-items-center text-xs text-white/70">
             {clip.render_status === "failed" ? "Render failed" : <Loader2 className="size-5 animate-spin" />}
@@ -99,7 +101,7 @@ export function ClipRow({
       </div>
 
       <div className="min-w-0 flex-1">
-        <button onClick={onDetails} className="text-left text-[17px] font-semibold leading-snug hover:text-primary cursor-pointer">
+        <button onClick={() => onDetails("score")} className="text-left text-[17px] font-semibold leading-snug hover:text-primary cursor-pointer">
           {clip.title}
         </button>
         <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-muted">
@@ -169,6 +171,20 @@ export function ClipRow({
             <span className="inline-flex h-8 items-center rounded-lg border border-border px-3 text-sm text-muted opacity-60">Download</span>
           )}
           <button
+            onClick={() => onDetails("fix")}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-primary/50 px-3 text-sm text-primary hover:bg-primary-soft cursor-pointer"
+          >
+            <Sparkles className="size-3.5" /> Fix with AI
+          </button>
+          {clip.thumbnails && (
+            <button
+              onClick={() => onDetails("thumbs")}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-sm hover:bg-surface-2 cursor-pointer"
+            >
+              <ImageIcon className="size-3.5" /> Thumbnails
+            </button>
+          )}
+          <button
             onClick={onPost}
             disabled={rendering || !clip.video_url}
             className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-on-primary hover:bg-primary-hover disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
@@ -202,7 +218,7 @@ export function ClipRow({
         <button onClick={() => setShowText((v) => !v)} className="grid size-8 place-items-center rounded-lg text-muted hover:text-text hover:bg-surface-2 cursor-pointer" aria-label="Show or hide transcript">
           <Rows3 className="size-4" />
         </button>
-        <button onClick={onDetails} className="grid size-8 place-items-center rounded-lg text-muted hover:text-text hover:bg-surface-2 cursor-pointer" aria-label="Why this clip">
+        <button onClick={() => onDetails("score")} className="grid size-8 place-items-center rounded-lg text-muted hover:text-text hover:bg-surface-2 cursor-pointer" aria-label="Why this clip">
           <BarChart3 className="size-4" />
         </button>
         <button onClick={onDelete} className="grid size-8 place-items-center rounded-lg text-muted hover:text-danger hover:bg-surface-2 cursor-pointer" aria-label="Delete clip">

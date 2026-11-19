@@ -166,3 +166,66 @@ def semantic_rank(cands, ctx, batch: int = 5) -> None:
             why = str(row.get("why") or "").strip()
             if why:
                 c.llm_note = "AI editor: " + why.rstrip(".") + "."
+    vision_rank(cands, ctx)
+
+
+VISION_MAX = 10
+
+
+def vision_rank(cands, ctx) -> None:
+    """Moments with little or no speech (gameplay, sport, music, reactions) are judged by looking at
+    them: the local vision model rates a frame from the middle of each for how striking it is."""
+    src = getattr(ctx.prefs, "media_src", "")
+    quiet = [c for c in cands if len(c.text.split()) < 15][:VISION_MAX]
+    if not src or not quiet:
+        return
+    import subprocess
+
+    from . import ffmpeg
+
+    for c in quiet:
+        try:
+            img = subprocess.run(
+                [
+                    ffmpeg.ffmpeg_bin(),
+                    "-v",
+                    "error",
+                    "-ss",
+                    f"{(c.start + c.end) / 2:.2f}",
+                    "-i",
+                    src,
+                    "-frames:v",
+                    "1",
+                    "-vf",
+                    "scale=640:-2",
+                    "-f",
+                    "image2",
+                    "-c:v",
+                    "mjpeg",
+                    "-",
+                ],
+                capture_output=True,
+                check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            ).stdout
+            if not img:
+                continue
+            d = vision_json(
+                "Rate this frame as the centre of a short vertical video. wow (0-10): how striking, exciting or "
+                "funny it looks; clear (0-10): is the subject clear. Also a title (max 50 chars, accurate). "
+                'Reply JSON {"wow": 7, "clear": 8, "title": "..."}',
+                [img],
+            )
+        except Exception as e:  # noqa: BLE001 - optional
+            log.info("vision rank failed: %s", e)
+            return
+        v = 10 * (0.7 * _rating(d, "wow") + 0.3 * _rating(d, "clear"))
+        c.dims["visual"] = round(max(c.dims.get("visual", 50), v), 1)
+        c.semantic = round(v if c.semantic is None else 0.5 * c.semantic + 0.5 * v, 1)
+        t = str(d.get("title") or "").strip().strip('"')
+        if not c.title and 4 <= len(t) <= 70:
+            c.title = t
+        if not c.llm_note:
+            c.llm_note = "AI editor (looked at it): visually " + (
+                "striking" if v >= 70 else "solid" if v >= 50 else "calm"
+            )
