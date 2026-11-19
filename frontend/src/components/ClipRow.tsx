@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { fmtTime } from "@/lib/api";
 import type { Clip, Goal } from "@/lib/types";
 import { cx } from "./ui";
 
@@ -103,6 +104,7 @@ export function ClipRow({
         </button>
         <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-muted">
           <span>{dur} seconds</span>
+          {clip.original_start != null && <span>From {fmtTime(clip.original_start)} in the original</span>}
           <span>
             Edited: {edited.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ·{" "}
             {edited.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}

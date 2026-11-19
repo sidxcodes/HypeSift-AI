@@ -96,6 +96,8 @@ def transcribe(
     total_seconds: float = 0,
     on_progress: Callable[[float], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
+    model: str | None = None,
+    task: str = "transcribe",
 ) -> Transcript:
     _add_nvidia_dll_dirs()
     s = get_settings()
@@ -109,17 +111,18 @@ def transcribe(
         raise RuntimeError("expected 16 kHz audio")
     for device, compute in _candidates():
         try:
-            model = _load(s.whisper_model, device, compute)
-            segments, info = model.transcribe(  # type: ignore[attr-defined]
+            whisper = _load(model or s.whisper_model, device, compute)
+            segments, info = whisper.transcribe(  # type: ignore[attr-defined]
                 samples,
                 language=None if not language or language == "auto" else language,
                 word_timestamps=True,
+                task=task,
                 vad_filter=True,
                 vad_parameters={"min_silence_duration_ms": 400},
                 beam_size=5 if device == "cuda" else 1,
                 condition_on_previous_text=False,
             )
-            out = Transcript(language=info.language, engine=f"faster-whisper/{s.whisper_model} ({device})")
+            out = Transcript(language=info.language, engine=f"faster-whisper/{model or s.whisper_model} ({device})")
             for seg in segments:
                 if should_cancel and should_cancel():
                     from .ffmpeg import Cancelled

@@ -49,6 +49,7 @@ export type GenerateSettings = {
   music_volume: number;
   transcript_only: boolean;
   language: string;
+  caption_language: "original" | "english";
   quality: "draft" | "standard" | "high";
   silence_removal: boolean;
   context_padding: boolean;
@@ -182,6 +183,7 @@ export type Clip = {
   project_name: string | null;
   post: PostPlan;
   insights: Insights;
+  original_start: number | null;
 };
 
 export type Project = {
@@ -237,6 +239,7 @@ export type UrlInfo = {
   content_type: string | null;
   message: string;
   warnings: string[];
+  scan?: boolean;
 };
 
 export type ClipDetail = {

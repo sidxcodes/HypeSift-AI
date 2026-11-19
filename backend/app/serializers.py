@@ -53,6 +53,15 @@ def job_out(j: Job | None) -> dict[str, Any] | None:
     }
 
 
+def original_time(c: Clip) -> float | None:
+    """Where a clip starts in the original video, when only sections of it were downloaded."""
+    sections = ((c.project.media if c.project else None) or {}).get("sections") or []
+    for s in sections:
+        if s["start"] - 0.5 <= c.start < s["end"]:
+            return round(s["orig_start"] + max(0.0, c.start - s["start"]), 2)
+    return None
+
+
 def clip_out(c: Clip, project: Project | None = None) -> dict[str, Any]:
     name = f"{slug(c.title)}-{c.id[:6]}"
     rendered = (c.edits or {}).get("_rendered") or {}
@@ -86,6 +95,7 @@ def clip_out(c: Clip, project: Project | None = None) -> dict[str, Any]:
         "srt_url": media_url(c.srt_key, f"{name}.srt"),
         "project_name": project.name if project else None,
         "post": c.post or {},
+        "original_start": original_time(c),
     }
     out["insights"] = virality.insights(out)
     return out

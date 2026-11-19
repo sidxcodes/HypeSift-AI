@@ -459,6 +459,7 @@ export function NewProject() {
                     {[urlInfo.author, urlInfo.duration ? fmtTime(urlInfo.duration) : null, urlInfo.platform].filter(Boolean).join(" · ")}
                   </div>
                   {!urlInfo.importable && <div className="mt-1 text-xs text-warning">{urlInfo.message}</div>}
+                  {urlInfo.importable && urlInfo.scan && <div className="mt-1 text-xs text-primary">{urlInfo.message}</div>}
                 </div>
               </div>
             )}
@@ -626,6 +627,18 @@ export function NewProject() {
           </div>
 
           <Section title="Caption settings" info="Captions are burned into the video; most Shorts are watched without sound.">
+            <div className="mb-4 flex flex-wrap items-center gap-3">
+              <span className="text-xs text-muted">Caption language</span>
+              <Select
+                value={s.caption_language}
+                onChange={(v) => set("caption_language", v as GenerateSettings["caption_language"])}
+                options={[
+                  { value: "original", label: "Same as the video" },
+                  { value: "english", label: "English (translated)" },
+                ]}
+                className="h-8 w-52 text-xs"
+              />
+            </div>
             <div className="text-xs text-muted">Caption transition</div>
             <div className="mt-1.5">
               <Chips value={s.caption_transition} onChange={(v) => set("caption_transition", v)} options={Object.entries(transitions) as [Transition, string][]} />

@@ -54,6 +54,8 @@ class GenerateSettings(BaseModel):
     music_volume: float = Field(default=0.16, ge=0.02, le=1.0)
     transcript_only: bool = False  # Transcript generator: stop after speech-to-text
     language: str = Field(default="auto", max_length=8)
+    # Captions for non-English speech: the spoken language, or an English translation
+    caption_language: Literal["original", "english"] = "original"
     quality: Literal["draft", "standard", "high"] = "standard"
     silence_removal: bool = False
     context_padding: bool = True

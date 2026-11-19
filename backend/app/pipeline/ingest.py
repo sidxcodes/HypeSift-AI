@@ -67,6 +67,7 @@ class UrlInfo:
     content_type: str | None = None
     message: str = ""
     warnings: list[str] = field(default_factory=list)
+    scan: bool = False  # long video: scanned first, only the best sections are downloaded
 
 
 def _host_matches(host: str, domains: tuple[str, ...]) -> bool:
@@ -182,7 +183,14 @@ def _site_info(url: str, label: str | None) -> UrlInfo:
         duration=d["duration"],
         size_bytes=d["size_bytes"],
     )
-    if d["importable"]:
+    info.scan = bool(d.get("scan"))
+    if d["importable"] and info.scan:
+        info.message = (
+            "Long video: HypeSift scans the whole thing first (captions and the replay graph), then downloads "
+            "only the best parts, not the full video."
+        )
+        info.warnings.append("Only import videos you own or have permission to use.")
+    elif d["importable"]:
         info.message = (
             f"{info.platform} video found. Press AI Generate and HypeSift downloads it, then makes the clips."
         )

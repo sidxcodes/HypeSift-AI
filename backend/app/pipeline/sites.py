@@ -16,6 +16,7 @@ unless you opt in to using your own browser's cookies (``HYPESIFT_YTDLP_COOKIES_
 from __future__ import annotations
 
 import contextlib
+import copy
 import logging
 import os
 from collections.abc import Callable
@@ -177,11 +178,8 @@ def summarize(info: dict[str, Any]) -> dict[str, Any]:
             "Live streams can't be clipped while they're live. Try again once the stream has ended "
             "and the replay is processed."
         )
-    elif duration and duration > s.max_duration_minutes * 60:
-        reason = (
-            f"This video is {duration / 60:.0f} minutes long; videos up to "
-            f"{s.max_duration_minutes} minutes are supported."
-        )
+    elif duration and duration > s.max_site_hours * 3600:
+        reason = f"This video is {duration / 3600:.0f} hours long; links up to {s.max_site_hours} hours are supported."
     fmts = info.get("requested_formats") or [info]
     size = sum(int(f.get("filesize") or f.get("filesize_approx") or 0) for f in fmts) or None
     site = PRETTY.get(info.get("extractor_key") or "", info.get("extractor_key") or "Video site")
@@ -198,6 +196,8 @@ def summarize(info: dict[str, Any]) -> dict[str, Any]:
         "webpage_url": info.get("webpage_url") or info.get("original_url"),
         "importable": reason is None,
         "reason": reason,
+        # long videos are scanned first and only the best sections are downloaded
+        "scan": bool(duration and duration > s.scan_threshold_minutes * 60),
     }
 
 
@@ -285,6 +285,251 @@ def download(
     if on_progress:
         on_progress(1.0)
     return path
+
+
+# ----------------------------------------------------------------------------- long videos
+#
+# For long videos (streams, VODs, hour-long podcasts) HypeSift doesn't download everything:
+# it reads the site's own captions (a full timed transcript in seconds) and YouTube's
+# "Most replayed" graph, picks the best moments, then downloads only those sections.
+
+
+def scan_info(url: str) -> dict[str, Any]:
+    """Full metadata for a link (captions list, heatmap, chapters) without downloading media."""
+    import yt_dlp
+
+    try:
+        with yt_dlp.YoutubeDL(_base_opts() | {"skip_download": True}) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except yt_dlp.utils.DownloadError as e:
+        raise MediaError(friendly_error(e)) from e
+    if not info or info.get("_type") == "playlist":
+        raise MediaError("That's a playlist or channel. Open one video and paste its link.")
+    return info
+
+
+def heatmap(info: dict[str, Any]) -> list[tuple[float, float, float]]:
+    """YouTube's "Most replayed" graph as (start, end, 0-1) spans; empty when the video has none."""
+    out = []
+    for h in info.get("heatmap") or []:
+        try:
+            out.append((float(h["start_time"]), float(h["end_time"]), float(h["value"])))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+def _caption_track(info: dict[str, Any]) -> tuple[list[dict], str, bool] | None:
+    """(formats, language, automatic) of the best caption track for scanning.
+
+    Prefer English (our scoring and the local LLM read English best; YouTube's auto-translation
+    keeps the original timing), then the video's own language, manual before automatic."""
+    manual = info.get("subtitles") or {}
+    auto = info.get("automatic_captions") or {}
+    lang = (info.get("language") or "").split("-")[0]
+    orig = next((k for k in auto if k.endswith("-orig")), None)
+    order: list[tuple[dict, str, bool]] = []
+    for k in [k for k in manual if k.split("-")[0] == "en"] + ([lang] if lang in manual else []):
+        order.append((manual, k, False))
+    if orig and orig.startswith("en"):
+        order.append((auto, orig, True))
+    if "en" in auto:
+        order.append((auto, "en", True))
+    if orig:
+        order.append((auto, orig, True))
+    if lang in auto:
+        order.append((auto, lang, True))
+    order += [(manual, k, False) for k in manual]
+    seen: set[str] = set()
+    out = []
+    for src, k, is_auto in order:
+        if src.get(k) and k not in seen and any(f.get("ext") == "json3" for f in src[k]):
+            seen.add(k)
+            out.append((src[k], k, is_auto))
+    return out
+
+
+def caption_words(url: str, info: dict[str, Any], work: Path) -> tuple[list, str] | None:
+    """Timed words from the site's captions (YouTube json3), or None when there are none.
+
+    Tracks are fetched with yt-dlp's own subtitle downloader (it sends the parameters YouTube
+    expects); auto-translated tracks are often rate-limited, so each candidate is tried in turn."""
+    import json
+
+    import yt_dlp
+
+    work.mkdir(parents=True, exist_ok=True)
+    data = None
+    lang = ""
+    for _formats, k, is_auto in _caption_track(info) or []:
+        opts = _base_opts() | {
+            "skip_download": True,
+            "writeautomaticsub": is_auto,
+            "writesubtitles": not is_auto,
+            "subtitleslangs": [k],
+            "subtitlesformat": "json3",
+            "outtmpl": str(work / "subs.%(ext)s"),
+        }
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.process_ie_result(copy.deepcopy(info), download=True)
+            f = work / f"subs.{k}.json3"
+            if f.exists() and f.stat().st_size > 100:
+                data, lang = json.loads(f.read_text(encoding="utf-8")), k
+                break
+        except Exception as e:  # noqa: BLE001 - try the next track; the caller falls back to audio
+            log.info("caption track %s failed: %s", k, e)
+    words = _json3_words(data) if data else []
+    return (words, lang) if words else None
+
+
+def _json3_words(data: dict) -> list:
+    from .transcribe import Word
+
+    words: list[Word] = []
+    for ev in data.get("events") or []:
+        segs = [s for s in ev.get("segs") or [] if (s.get("utf8") or "").strip()]
+        if not segs:
+            continue
+        t0 = ev.get("tStartMs", 0) / 1000
+        dur = (ev.get("dDurationMs") or 0) / 1000
+        tokens = []
+        for s in segs:
+            parts = s["utf8"].split()
+            off = (s.get("tOffsetMs") or 0) / 1000
+            tokens += [(p, off) for p in parts]
+        has_offsets = any(s.get("tOffsetMs") for s in segs)
+        for i, (w, off) in enumerate(tokens):
+            ws = t0 + (off if has_offsets else dur * i / max(1, len(tokens)))
+            words.append(Word(w, round(ws, 3), round(ws + 0.3, 3), 0.8))
+    words.sort(key=lambda w: w.s)
+    for a, b in zip(words, words[1:], strict=False):  # end each word where the next begins
+        a.e = round(max(a.s + 0.05, min(a.s + 1.2, b.s)), 3)
+    return words if len(words) >= 20 else []
+
+
+def download_audio(url: str, dst_dir: Path, should_cancel: Callable[[], bool] | None = None) -> Path:
+    """Smallest audio-only stream, for scanning long videos that have no captions."""
+    import yt_dlp
+
+    def hook(d: dict[str, Any]) -> None:
+        if should_cancel and should_cancel():
+            raise Cancelled("cancelled")
+
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    opts = _base_opts() | {
+        "format": "wa[acodec=opus]/wa/ba",
+        "outtmpl": str(dst_dir / "scan-audio.%(ext)s"),
+        "progress_hooks": [hook],
+        "overwrites": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+    except yt_dlp.utils.DownloadError as e:
+        raise MediaError(friendly_error(e)) from e
+    got = (info or {}).get("requested_downloads") or []
+    path = Path(got[0]["filepath"]) if got and got[0].get("filepath") else None
+    if not path or not path.exists():
+        cands = list(dst_dir.glob("scan-audio.*"))
+        if not cands:
+            raise MediaError("The audio couldn't be downloaded for scanning.")
+        path = cands[0]
+    return path
+
+
+def download_sections(
+    url: str,
+    dst: Path,
+    ranges: list[tuple[float, float]],
+    on_progress: Callable[[float], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
+) -> list[dict[str, float]]:
+    """Download only ``ranges`` (seconds in the original video) and join them into ``dst``.
+
+    Returns the section map [{orig_start, orig_end, start, end}] (start/end = position in dst)."""
+    import yt_dlp
+
+    s = get_settings()
+    work = dst.parent / "sections"
+    work.mkdir(parents=True, exist_ok=True)
+    parts: list[Path] = []
+    opts = _base_opts() | {
+        "format": _format_selector(s.ytdlp_max_height),
+        "merge_output_format": "mp4",
+        "outtmpl": str(work / "part.%(ext)s"),
+        "ffmpeg_location": os.path.dirname(ffmpeg_bin()),
+        "overwrites": True,
+        "postprocessors": [{"key": "FFmpegVideoRemuxer", "preferedformat": "mp4"}],
+    }
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)  # read the page once
+    except yt_dlp.utils.DownloadError as e:
+        raise MediaError(friendly_error(e)) from e
+
+    def fetch(i: int, a: float, b: float) -> Path:
+        # Each range is fetched with stream copy (cut at the nearest keyframe; the join below
+        # re-encodes once anyway). Seeking inside a huge remote file is slow, so parts run in parallel.
+        if should_cancel and should_cancel():
+            raise Cancelled("cancelled")
+        part_opts = opts | {
+            "outtmpl": str(work / f"part-{i:02d}.%(ext)s"),
+            "download_ranges": yt_dlp.utils.download_range_func(None, [(a, b)]),
+        }
+        with yt_dlp.YoutubeDL(part_opts) as ydl:
+            ydl.process_ie_result(copy.deepcopy(info), download=True)
+        got = [p for p in work.glob(f"part-{i:02d}.*") if p.suffix == ".mp4"]
+        if not got:
+            raise MediaError("A section of the video couldn't be downloaded.")
+        return got[0]
+
+    found: dict[int, Path] = {}
+    try:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futs = {pool.submit(fetch, i, a, b): i for i, (a, b) in enumerate(ranges)}
+            for f in as_completed(futs):
+                found[futs[f]] = f.result()
+                if on_progress:
+                    on_progress(len(found) / len(ranges) * 0.9)
+    except yt_dlp.utils.DownloadError as e:
+        raise MediaError(friendly_error(e)) from e
+    parts = [found[i] for i in range(len(ranges))]
+    # join: re-encode once so every part shares the same codec settings and timestamps start at 0
+    from . import ffmpeg as ff
+
+    sections, t = [], 0.0
+    for (a, _b), p in zip(ranges, parts, strict=True):
+        d = ff.probe(p).duration
+        sections.append(
+            {"orig_start": round(a, 3), "orig_end": round(a + d, 3), "start": round(t, 3), "end": round(t + d, 3)}
+        )
+        t += d
+    probe0 = ff.probe(parts[0])
+    W, H = probe0.width // 2 * 2, probe0.height // 2 * 2
+    has_a = all(ff.probe(p).has_audio for p in parts)
+    inputs: list[str] = []
+    chains = []
+    for i, p in enumerate(parts):
+        inputs += ["-i", str(p)]
+        chains.append(
+            f"[{i}:v]scale={W}:{H}:force_original_aspect_ratio=decrease,pad={W}:{H}:(ow-iw)/2:(oh-ih)/2,"
+            f"setsar=1,fps=30,format=yuv420p[v{i}]"
+            + (f";[{i}:a]aresample=48000,aformat=channel_layouts=stereo[a{i}]" if has_a else "")
+        )
+    pairs = "".join(f"[v{i}][a{i}]" if has_a else f"[v{i}]" for i in range(len(parts)))
+    graph = ";".join(chains) + f";{pairs}concat=n={len(parts)}:v=1:a={1 if has_a else 0}[v]" + ("[a]" if has_a else "")
+    args = [ff.ffmpeg_bin(), "-y", "-v", "error", *inputs, "-filter_complex", graph, "-map", "[v]"]
+    if has_a:
+        args += ["-map", "[a]", "-c:a", "aac", "-b:a", "160k"]
+    args += [*ff.encoder_args("high"), "-movflags", "+faststart", str(dst)]
+    ff.run_with_progress(args, t, lambda f: on_progress and on_progress(0.9 + 0.1 * f), should_cancel)
+    import shutil
+
+    shutil.rmtree(work, ignore_errors=True)
+    return sections
 
 
 def _cleanup(dst: Path) -> None:

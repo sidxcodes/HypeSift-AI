@@ -40,8 +40,15 @@ from .transcribe import Word
 _TOKEN = re.compile(r"[a-z0-9']+")
 
 
+_PUNCT = "\"'.,!?;:()[]{}<>-–—…।॥¿¡“”‘’"
+
+
 def tokens(text: str) -> list[str]:
-    return [t.strip("'") for t in _TOKEN.findall(text.lower()) if t.strip("'")]
+    if text.isascii():
+        return [t.strip("'") for t in _TOKEN.findall(text.lower()) if t.strip("'")]
+    # Any other script (Hindi, Arabic, Japanese ...): whitespace words without punctuation, so the
+    # scorer's novelty / relevance / repetition signals still work on non-English transcripts.
+    return [w for w in (t.strip(_PUNCT) for t in text.lower().split()) if w]
 
 
 def content_tokens(text: str) -> list[str]:
@@ -156,6 +163,8 @@ class Prefs:
     position: str = "any"  # any | start | middle | end
     query: list[str] = field(default_factory=list)
     instructions: str = ""  # free text, also given to the LLM editor
+    # joins between separately downloaded sections of a long video: no clip may cross one
+    barriers: list[float] = field(default_factory=list)
     pad_before: float = 0.25
     pad_after: float = 0.45
 
@@ -618,6 +627,8 @@ def discover(
     fills ``semantic`` / ``title`` / ``llm_note`` on a shortlist."""
     ctx = make_context(words, signals, prefs, weight_bias)
     cands = [score(c, ctx) for c in generate(ctx)]
+    if prefs.barriers:
+        cands = [c for c in cands if not any(c.start + 0.3 < b < c.end - 0.3 for b in prefs.barriers)]
     cands = position_filter(cands, prefs.position, signals.duration)
     # With custom instructions the LLM gets a wider shortlist, so it can find matches the
     # keyword pass missed.

@@ -16,7 +16,7 @@ from .config import get_settings
 from .db import SessionLocal
 from .jobs import JobContext, UserFacingError, handler
 from .models import Clip, Project, User
-from .pipeline import ffmpeg, highlights, ingest, llm, publish, reframe, render, signals, transcribe
+from .pipeline import ffmpeg, highlights, ingest, llm, longscan, publish, reframe, render, signals, sites, transcribe
 from .pipeline.highlights import Prefs
 from .pipeline.transcribe import Transcript
 from .storage import storage
@@ -37,6 +37,24 @@ def ckey(cid: str, name: str) -> str:
 
 def source_path(p: Project) -> Path:
     return storage.path(p.media["source_key"])
+
+
+def load_rank_words(pid: str) -> list:
+    """Words used to choose moments and write titles: an English version of non-English speech
+    when one exists, otherwise the caption transcript."""
+    path = storage.path(pkey(pid, "rank_words.json"))
+    if path.exists():
+        return [transcribe.Word(w, s, e, 0.8) for w, s, e in json.loads(path.read_text(encoding="utf-8"))]
+    return load_transcript(pid).words
+
+
+def _scan_caption_words(pid: str) -> tuple[str, list] | None:
+    path = storage.path(pkey(pid, "scan_words.json"))
+    if not path.exists():
+        return None
+    d = json.loads(path.read_text(encoding="utf-8"))
+    words = [transcribe.Word(w, s, e, 0.8) for w, s, e in d.get("words", [])]
+    return (str(d.get("language", "")), words) if len(words) >= 20 else None
 
 
 def load_transcript(pid: str) -> Transcript:
@@ -307,8 +325,10 @@ def generate(ctx: JobContext) -> None:
         settings, source_type, url = dict(p.settings), p.source_type, p.source_url
         brand = dict(db.get(User, p.user_id).brand_kit or {})
     use_llm = settings.get("use_llm", True) and llm.status()["available"]
+    scan = source_type == "url" and bool((p.media or {}).get("scan"))
     ctx.plan(
         {
+            **({"scan": 14} if scan else {}),
             "ingest": 14 if source_type == "url" else 2,
             "prepare": 6,
             "transcribe": 30,
@@ -324,12 +344,40 @@ def generate(ctx: JobContext) -> None:
     ctx.stage("ingest", f"Downloading from {site}" if site else "Importing video")
     if source_type == "url" and not storage.exists((p.media or {}).get("source_key")):
         key = pkey(p.id, "source.mp4")
-        ingest.download(
-            url, storage.path(key), st.max_upload_mb * 2**20, on_progress=ctx.progress, should_cancel=ctx.cancelled
-        )
+        extra: dict = {}
+        if scan:
+            # Long video: find the best moments from captions / replay graph / audio, then fetch only those.
+            ctx.stage("scan", "Scanning the whole video for the best moments")
+            ranges, scan_words, meta = longscan.plan(
+                ingest.clean_site_url(url),
+                prefs_from(settings),
+                storage.path(pkey(p.id, "scan")),
+                progress=lambda f, m=None: ctx.progress(f, m),
+                cancelled=ctx.cancelled,
+                language=settings.get("language"),
+            )
+            ctx.stage("ingest", f"Downloading the {len(ranges)} best parts{f' from {site}' if site else ''}")
+            sections = sites.download_sections(
+                ingest.clean_site_url(url),
+                storage.path(key),
+                ranges,
+                on_progress=lambda f: ctx.progress(f, f"Downloading the best parts ({f:.0%})"),
+                should_cancel=ctx.cancelled,
+            )
+            extra = {"sections": sections, "scan_summary": meta}
+            if meta.get("language"):
+                # keep the site's caption text for the downloaded parts (used for English titles below)
+                storage.path(pkey(p.id, "scan_words.json")).write_text(
+                    json.dumps({"language": meta["language"], "words": longscan.map_words(scan_words, sections)}),
+                    encoding="utf-8",
+                )
+        else:
+            ingest.download(
+                url, storage.path(key), st.max_upload_mb * 2**20, on_progress=ctx.progress, should_cancel=ctx.cancelled
+            )
         with SessionLocal() as db:
             pp = db.get(Project, p.id)
-            pp.media = {**(pp.media or {}), "source_key": key}
+            pp.media = {**(pp.media or {}), "source_key": key, **extra}
             db.commit()
             p = pp
 
@@ -391,6 +439,25 @@ def generate(ctx: JobContext) -> None:
             on_progress=lambda f: ctx.progress(f, f"Transcribing speech ({f:.0%})"),
             should_cancel=ctx.cancelled,
         )
+        lang = (tr.language or "").split("-")[0]
+        if tr.words and lang and lang != "en":
+            # Non-English speech. Titles, descriptions and moment-picking work best in English, so get
+            # an English version: the site's English captions if we have them, else Whisper's translation.
+            scan = _scan_caption_words(p.id)
+            english = scan[1] if scan and scan[0].startswith("en") else None
+            if english is None and not settings.get("transcript_only"):
+                ctx.progress(0.95, "Translating speech to English for titles and copy")
+                english = transcribe.transcribe(wav, tr.language, probe.duration, task="translate").words
+            if english:
+                storage.path(pkey(p.id, "rank_words.json")).write_text(
+                    json.dumps([[w.w, w.s, w.e] for w in english]), encoding="utf-8"
+                )
+            if settings.get("caption_language") == "english" and english:
+                tr.words = english
+            elif scan and scan[0].split("-")[0] == lang:
+                # The site's own captions in the spoken language are cleaner than a small speech model.
+                tr.words = scan[1]
+                tr.engine += " + site captions"
         storage.path(pkey(p.id, "transcript.json")).write_text(json.dumps(tr.to_json()), encoding="utf-8")
 
     if settings.get("transcript_only"):
@@ -425,9 +492,10 @@ def generate(ctx: JobContext) -> None:
     ctx.stage("rank", "Finding and ranking highlight moments")
     with SessionLocal() as db:
         bias = feedback_bias(db, ctx.user_id)
-    cands, hctx = highlights.discover(
-        tr.words, sig, prefs_from(settings), bias, semantic=llm.semantic_rank if use_llm else None
-    )
+    prefs = prefs_from(settings)
+    prefs.barriers = [s["start"] for s in (p.media or {}).get("sections", [])[1:]]
+    rank_words = load_rank_words(p.id) or tr.words
+    cands, hctx = highlights.discover(rank_words, sig, prefs, bias, semantic=llm.semantic_rank if use_llm else None)
     if not cands:
         raise UserFacingError("No usable moments were found in this video.")
     with SessionLocal() as db:
@@ -484,13 +552,15 @@ def discover(ctx: JobContext) -> None:
     ctx.plan({"rank": 15 if use_llm else 5, "render": 70, "publish": 10})
     ctx.stage("rank", "Searching the video for your request")
     tr = load_transcript(p.id)
+    rank_words = load_rank_words(p.id) or tr.words
     sig = load_signals(p.id)
     prefs = prefs_from(settings, overrides)
     want = prefs.count
     prefs.count = want + len(existing)  # ask for extra so we can skip clips you already have
     with SessionLocal() as db:
         bias = feedback_bias(db, ctx.user_id)
-    cands, hctx = highlights.discover(tr.words, sig, prefs, bias, semantic=llm.semantic_rank if use_llm else None)
+        prefs.barriers = [s["start"] for s in (db.get(Project, p.id).media or {}).get("sections", [])[1:]]
+    cands, hctx = highlights.discover(rank_words, sig, prefs, bias, semantic=llm.semantic_rank if use_llm else None)
     fresh = []
     for c in cands:
         dup = any(highlights.overlap(c, highlights.Candidate(start=s, end=e, text=t)) > 0.6 for s, e, t in existing)

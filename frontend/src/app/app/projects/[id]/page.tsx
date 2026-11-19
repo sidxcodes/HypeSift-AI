@@ -25,7 +25,7 @@ const SORTS: { value: Sort; label: string }[] = [
 ];
 
 const STEPS: { label: string; stages: string[] }[] = [
-  { label: "Processing", stages: ["queued", "ingest", "prepare"] },
+  { label: "Processing", stages: ["queued", "scan", "ingest", "prepare"] },
   { label: "Transcribing", stages: ["transcribe"] },
   { label: "Analyzing", stages: ["analyze", "rank"] },
   { label: "Generating clips", stages: ["render", "publish"] },

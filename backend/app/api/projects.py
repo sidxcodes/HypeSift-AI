@@ -90,7 +90,7 @@ def create(body: ProjectCreateIn, user: User = Depends(current_user), db: Sessio
             raise HTTPException(422, str(e)) from e
         if not info.importable:
             raise HTTPException(422, info.message)
-        if info.size_bytes and info.size_bytes > get_settings().max_upload_mb * 2**20:
+        if not info.scan and info.size_bytes and info.size_bytes > get_settings().max_upload_mb * 2**20:
             raise HTTPException(413, "That file is larger than the upload limit.")
         p = Project(
             user_id=user.id,
@@ -99,7 +99,7 @@ def create(body: ProjectCreateIn, user: User = Depends(current_user), db: Sessio
             source_url=info.url,
             settings=body.settings.model_dump(),
             status="draft",
-            media={},
+            media={"scan": True, "source_duration": info.duration} if info.scan else {},
         )
         db.add(p)
     db.commit()

@@ -136,9 +136,14 @@ def test_live_and_too_long_videos_are_not_importable(fake_ytdlp):
     info = ingest.inspect_url("https://youtu.be/abc123")
     assert not info.importable and "Live" in info.message
 
-    fake_ytdlp.info = {**VIDEO, "duration": (get_settings().max_duration_minutes + 5) * 60}
+    # a 10-hour stream replay is fine: it's scanned, and only the best parts are downloaded
+    fake_ytdlp.info = {**VIDEO, "duration": 10 * 3600, "live_status": "was_live"}
     info = ingest.inspect_url("https://youtu.be/abc123")
-    assert not info.importable and "minutes" in info.message
+    assert info.importable and info.scan and "only the best parts" in info.message
+
+    fake_ytdlp.info = {**VIDEO, "duration": (get_settings().max_site_hours + 1) * 3600}
+    info = ingest.inspect_url("https://youtu.be/abc123")
+    assert not info.importable and "hours" in info.message
 
 
 @pytest.mark.parametrize(

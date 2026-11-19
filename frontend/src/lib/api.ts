@@ -146,6 +146,7 @@ export const DEFAULT_SETTINGS: GenerateSettings = {
   music_volume: 0.16,
   transcript_only: false,
   language: "auto",
+  caption_language: "original",
   quality: "standard",
   silence_removal: false,
   context_padding: true,

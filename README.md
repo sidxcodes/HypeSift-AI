@@ -44,6 +44,15 @@ Ollama. No paid APIs, no keys.
   members-only and region-blocked videos. Age-restricted and "confirm you're not a bot" videos can use your own browser
   login if you opt in (`HYPESIFT_YTDLP_COOKIES_BROWSER=edge`). The desktop app keeps yt-dlp updated.
   Only import videos you own or have permission to use.
+- **Long videos and stream replays of any length (up to 48 h):** HypeSift doesn't download them. It reads
+  the site's own captions (a 10-hour stream's full transcript arrives in ~5 s) and YouTube's "Most replayed"
+  graph, picks the best moments, and downloads only those few minutes (in parallel), then runs the full
+  pipeline on them. Caption-less videos fall back to an audio-only download transcribed in chunks. Clips
+  show where they start in the original. Measured: a 10 h 9 min Hindi GTA stream → 4 clips in 5.4 min,
+  downloading 5 minutes of video instead of ~20 GB.
+- **Any language:** non-English speech is translated to English for moment-picking, titles and copy;
+  burned-in captions use the site's own captions in the spoken language (cleaner than a small speech model)
+  or, if you choose, English.
 - **Import → Customize → Generate:** paste a link, optionally add **custom instructions** ("find the
   moments where she shares concrete pricing advice"), then customize: language, clip duration, number of
   clips, template, size, caption transition/style/effect, auto-highlighted keywords, auto-zoom, logo and

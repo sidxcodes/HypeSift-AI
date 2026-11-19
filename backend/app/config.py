@@ -30,7 +30,11 @@ class Settings(BaseSettings):
 
     # --- limits / quotas --------------------------------------------------
     max_upload_mb: int = 4096
-    max_duration_minutes: int = 180
+    max_duration_minutes: int = 720  # uploads and short links are processed in full
+    # Video-site links longer than this are scanned first (captions / most-replayed graph / audio)
+    # and only the best sections are downloaded, so streams and VODs of any length work.
+    scan_threshold_minutes: int = 45
+    max_site_hours: int = 48
     max_clips: int = 20
     max_active_jobs_per_user: int = 3
     upload_chunk_mb: int = 8
