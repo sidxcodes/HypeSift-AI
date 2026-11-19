@@ -1,4 +1,4 @@
-import type { Clip, ClipDetail, GenerateSettings, Job, Meta, Project, UrlInfo, User } from "./types";
+import type { Asset, Clip, ClipDetail, GenerateSettings, Job, Meta, PostPlan, Project, StorageUsage, UrlInfo, User } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -65,6 +65,17 @@ export const api = {
   job: (id: string) => req<Job>(`/api/jobs/${id}`),
   cancelJob: (id: string) => req<Job>(`/api/jobs/${id}/cancel`, { method: "POST" }),
 
+  uploadAsset: (kind: "logo" | "music", file: File) =>
+    req<Asset>(`/api/assets?kind=${kind}&name=${encodeURIComponent(file.name)}`, {
+      method: "POST",
+      body: file,
+      headers: { "Content-Type": "application/octet-stream" },
+    }),
+  setPost: (id: string, plan: { status: NonNullable<PostPlan["status"]>; scheduled_at?: string | null; timezone?: string; platforms?: PostPlan["platforms"] }) =>
+    req<Clip>(`/api/clips/${id}/post`, { method: "PUT", body: json(plan) }),
+  posts: () => req<Clip[]>("/api/posts"),
+  storage: () => req<StorageUsage>("/api/storage"),
+
   assistant: (project_id: string, text: string, clip_id?: string) =>
     req<{ action: Record<string, unknown>; executed: boolean; message: string; jobs: Job[] }>("/api/assistant", {
       method: "POST",
@@ -122,7 +133,18 @@ export const DEFAULT_SETTINGS: GenerateSettings = {
   crop_mode: "auto",
   captions: true,
   caption_preset: "bold_creator",
+  caption_transition: "fade_up",
+  caption_effect: "none",
   keyword_emphasis: true,
+  instructions: "",
+  zoom_start: false,
+  zoom_key_phrases: true,
+  progress_bar: false,
+  logo_key: null,
+  logo_position: "top_right",
+  music_key: null,
+  music_volume: 0.16,
+  transcript_only: false,
   language: "auto",
   quality: "standard",
   silence_removal: false,

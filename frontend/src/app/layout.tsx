@@ -12,7 +12,7 @@ export const metadata: Metadata = {
     "Turn long videos into captioned, reframed, ready-to-post shorts with explainable AI highlight scoring.",
 };
 
-const themeScript = `try{var t=localStorage.getItem('hs-theme');if(t==='dark'||(!t&&matchMedia('(prefers-color-scheme: dark)').matches))document.documentElement.classList.add('dark')}catch(e){}`;
+const themeScript = `try{var t=localStorage.getItem('hs-theme');if(t==='dark')document.documentElement.classList.add('dark')}catch(e){}`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

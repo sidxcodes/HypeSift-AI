@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .models import Clip, Job, Project, User
+from .pipeline import virality
 from .storage import sign, storage
 
 
@@ -55,7 +56,7 @@ def job_out(j: Job | None) -> dict[str, Any] | None:
 def clip_out(c: Clip, project: Project | None = None) -> dict[str, Any]:
     name = f"{slug(c.title)}-{c.id[:6]}"
     rendered = (c.edits or {}).get("_rendered") or {}
-    return {
+    out = {
         "id": c.id,
         "project_id": c.project_id,
         "rank": c.rank,
@@ -84,7 +85,10 @@ def clip_out(c: Clip, project: Project | None = None) -> dict[str, Any]:
         "thumb_url": media_url(c.thumb_key),
         "srt_url": media_url(c.srt_key, f"{name}.srt"),
         "project_name": project.name if project else None,
+        "post": c.post or {},
     }
+    out["insights"] = virality.insights(out)
+    return out
 
 
 def project_out(p: Project, clips: bool = False, job: Job | None = None) -> dict[str, Any]:

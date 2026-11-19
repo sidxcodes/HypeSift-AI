@@ -4,8 +4,9 @@
 
 **Find the Hype. Create the Highlight.**
 
-HypeSift AI turns long videos into ready-to-post shorts. Paste a video link or upload a file, press
-**AI Generate**, and you get several finished clips — trimmed on complete thoughts, reframed to 9:16
+HypeSift AI turns long videos into ready-to-post shorts. Paste a **YouTube link** or upload a file, tell the
+AI what to look for in your own words, pick a caption look in a live 9:16 preview, and you get several
+finished clips — trimmed on complete thoughts, reframed to 9:16
 around the speaker, captioned word-by-word, normalised for social audio — plus titles, descriptions and
 hashtags for YouTube Shorts, Instagram Reels, TikTok, LinkedIn, Facebook and X. Every clip comes with an
 **explainable 0–100 score** showing *why* it was picked, and everything can be edited in a browser editor
@@ -14,13 +15,13 @@ before you download.
 It runs entirely on free, local tools: FFmpeg, faster-whisper, OpenCV and (optionally) a local LLM through
 Ollama. No paid APIs, no keys.
 
-![Results workspace: ranked, face-tracked vertical clips with captions and the creator assistant](docs/screenshots/results.jpg)
+![Project page: clips ranked by goal, with scores, transcript, Edit / Download / Post or schedule](docs/screenshots/results.jpg)
 
-| Browser editor | Publishing package |
+| Customize with a live preview | Post or schedule |
 |---|---|
-| ![Editor with live caption preview, trim timeline and style controls](docs/screenshots/editor.jpg) | ![Clip drawer with download buttons and AI-written YouTube titles, description and hashtags](docs/screenshots/publish.jpg) |
+| ![Customize step: caption transitions, 20+ caption styles, effects and a live 9:16 preview](docs/screenshots/customize.jpg) | ![Post drawer with AI-written YouTube and TikTok title, description and settings](docs/screenshots/publish.jpg) |
 
-*Screenshots are real output: a public-domain VOA interview from Wikimedia Commons, imported by direct link.*
+*Screenshots are real output from a public NASA Science video, imported by its YouTube link.*
 
 | | |
 |---|---|
@@ -43,24 +44,45 @@ Ollama. No paid APIs, no keys.
   members-only and region-blocked videos. Age-restricted and "confirm you're not a bot" videos can use your own browser
   login if you opt in (`HYPESIFT_YTDLP_COOKIES_BROWSER=edge`). The desktop app keeps yt-dlp updated.
   Only import videos you own or have permission to use.
-- **AI Generate (one click):** import → transcribe → audio/visual analysis → candidate windows →
-  ranking → per-clip reframing → render → publishing copy. Real stage-by-stage progress from the worker,
-  with cancel.
+- **Import → Customize → Generate:** paste a link, optionally add **custom instructions** ("find the
+  moments where she shares concrete pricing advice"), then customize: language, clip duration, number of
+  clips, template, size, caption transition/style/effect, auto-highlighted keywords, auto-zoom, logo and
+  background music, all in a live 9:16 preview that plays the actual video. Then: import → transcribe →
+  analysis → ranking → reframing → render → publishing copy, with a step banner and cancel.
+- **Custom instructions steer the AI:** topic words from your request raise the relevance score (with stem
+  matching), the local LLM gets a wider shortlist and rates each moment's *fit* to your request, and the
+  LLM's say in the final score rises from 40% to 50%.
 - **Highlight detection:** sentence-aligned windows scored on 7 dimensions — hook strength, context clarity,
   pacing, novelty, emotional intensity, visual interest, audience relevance — from transcript structure,
   loudness, spectral flux, noise-like bursts (laughter/applause proxy), motion and scene cuts. Genre
   profiles (podcast, gaming, education, tutorial, entertainment, vlog, review) and moods reweight them.
-  Near-duplicates are suppressed. The local LLM, if running, re-reads the shortlist and contributes 30%.
-- **Captions:** six presets (Clean Minimal, Bold Creator, Gaming Energy, Podcast, Cinematic, Karaoke
-  Highlight), active-word highlight/pop/karaoke fill, keyword emphasis, editable text, SRT export.
+  Near-duplicates are suppressed. The local LLM, if running, re-reads the shortlist and contributes 40%.
+- **Captions:** 22 styles (Basic, Modern, Scribble, Funky, Spotlight, Classic, Heat, Icy, Ghost, Editorial,
+  Tallboy, Elegant, Punch, Clean, Roundtable, Matrix, Bubbly, Mint, Karaoke, Arcade, Podcast, Cinematic)
+  in 13 free fonts; transitions (Fade Up/Down/Left/Right, Bounce); effects (Glow, 3D shadow, Typewriter,
+  Tilt); active-word highlight/pop/karaoke fill, auto-highlighted keywords, editable text, SRT export.
   The browser preview uses the same fonts and metrics as the burned-in export.
+- **Retention tools for Shorts:** punch-in zooms at the start and on key phrases, a hook title for the first
+  3 s, an optional progress bar, silence removal, your logo in a corner, and background music that ducks
+  automatically under speech.
+- **Sort by goal + Shorts checklist:** sort clips for *More views*, *Build trust*, *Teach something* or
+  *Entertain*. Each clip shows a viral-potential estimate with a checklist: opening line, hook text,
+  15–45 s length, 9:16, captions, a face on screen, a clean loop, and zoom/progress bar, each with a fix.
 - **Reframing:** 9:16, 1:1, 4:5, 16:9; smart (face/motion "camera operator" path), manual with drag,
   centre, fit-with-blurred-fill, and a stacked two-speaker layout when two faces are detected.
 - **Editor:** canvas preview, loudness timeline with word-snapping trim handles, caption/format/text/audio
   panels, title overlay, watermark, fades, gain and loudness normalisation, silence removal, undo/redo,
   re-render and download.
 - **Publishing packages:** per-platform titles, descriptions, search terms, hashtags, CTAs and pinned-comment
-  ideas in six tones; editable, one-click copy. Every package is labelled with the engine that wrote it.
+  ideas in six tones; YouTube titles put searchable words first and always carry #Shorts. Editable,
+  one-click copy, and labelled with the engine that wrote them.
+- **Post or schedule:** a drawer with each platform's title, caption and options (YouTube category and
+  visibility, TikTok who-can-view and comment/duet/stitch). *Post now* downloads the clip, copies the text
+  and opens that platform's upload page. *Schedule* puts it on the **Calendar** with suggested posting
+  times and reminds you (in the app and as a desktop notification) when it's due. All clips / Scheduled /
+  Posted tabs track it.
+- **Also in the sidebar:** Social profiles (your handles and time zone), Storage (disk use per project),
+  and a **Transcript generator** (any link or file → searchable, timestamped transcript, TXT/SRT).
 - **Creator assistant:** "Find the funniest 30-second moment", "Make three emotional clips near the end",
   "Use bold yellow captions", "Write an Instagram caption", "Remove silences" → real jobs. Unsupported
   requests (music, dubbing, auto-posting…) get an honest "not yet" instead of a fake success.
@@ -119,7 +141,7 @@ whole flow from the command line, and `backend/scripts/smoke_pipeline.py` runs t
 ## Tests and checks
 
 ```bash
-cd backend && pytest -q && ruff check app tests scripts      # 37 tests incl. a full HTTP end-to-end run
+cd backend && pytest -q && ruff check app tests scripts      # 108 tests incl. full HTTP end-to-end runs
 cd frontend && npx tsc --noEmit && npm run lint && npm run build
 ```
 
@@ -135,6 +157,7 @@ i5-13450HX, RTX 3050 6 GB laptop, Windows 11:
 |---|---|
 | 2:53 synthetic podcast, upload → 4 finished clips | 90 s total (whisper `small` on CUDA, gemma3:4b ranking + copy, NVENC renders) |
 | 1:55 public-domain interview via direct link | 67 s total, 2 clips, face-tracked crops |
+| 3:11 YouTube link + custom instructions → 3 clips (Heat style, glow, zoom, progress bar) | 138 s total |
 | Transcription only, 1:55 of speech | 4.5 s (`small`, CUDA) · ~7 s (`base`, CPU) |
 | Re-render one 27 s clip from the editor | ~10 s |
 
@@ -148,7 +171,9 @@ i5-13450HX, RTX 3050 6 GB laptop, Windows 11:
 - Face tracking uses OpenCV Haar cascades: fast and dependency-free, but weaker on profiles, low light and
   small faces.
 - Colour emoji can't be burned into video by libass, so emoji stay in the publishing text.
-- No direct posting to social platforms yet; download the MP4 and paste the generated copy.
+- No automatic posting: platforms only allow that through developer apps they approve. *Post now* hands you
+  the file and the text on the platform's own upload page; scheduled posts are reminders, not auto-posts.
+- The viral-potential number and checklist are estimates from the clip itself, not view predictions.
 - One worker processes one job at a time by default; long videos queue. See
   [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for scaling notes.
 

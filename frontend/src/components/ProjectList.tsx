@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderOpen, Plus, Video } from "lucide-react";
+import { FolderOpen, Upload, Video } from "lucide-react";
 import Link from "next/link";
 import { fmtTime } from "@/lib/api";
 import type { Project } from "@/lib/types";
@@ -22,11 +22,11 @@ export function ProjectList({ projects }: { projects: Project[] }) {
         <EmptyState
           icon={<FolderOpen className="size-6" />}
           title="No projects yet"
-          body="Upload a long video or paste a direct link, then hit AI Generate to get ready-to-post shorts."
+          body="Paste a YouTube link or upload a long video, and HypeSift turns it into ready-to-post shorts."
           action={
             <Link href="/app/new">
               <Button>
-                <Plus className="size-4" /> New project
+                <Upload className="size-4" /> Upload a video
               </Button>
             </Link>
           }

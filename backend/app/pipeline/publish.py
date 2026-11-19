@@ -30,8 +30,10 @@ GENRE_TAGS = {
 }
 
 PLATFORM_RULES = {
-    "youtube": "YouTube Shorts: 3 title options under 70 chars, a 2-3 sentence description, 5-8 search terms, "
-    "3-6 hashtags including #Shorts, and one pinned-comment idea that invites discussion.",
+    "youtube": "YouTube Shorts: 3 title options under 60 chars that put the most searchable topic words first and "
+    "open a curiosity gap the clip really answers (no fake claims, no ALL CAPS); a 2-3 sentence description whose "
+    "first line repeats the main topic words; 5-8 search terms people would actually type; 3-5 hashtags including "
+    "#Shorts; and one pinned-comment question that invites viewers to share their own opinion or experience.",
     "instagram": "Instagram Reels: an engaging caption (2-4 short lines), a call to action, 8-15 relevant "
     "hashtags, and one alternate caption in a different tone.",
     "tiktok": "TikTok: a concise hook-style description under 150 chars and 3-6 relevant hashtags.",
@@ -154,6 +156,10 @@ def llm_package(title: str, text: str, genre: str, platforms: list[str], tone: s
             cleaned[p] = block
     if not cleaned:
         raise ValueError("LLM package empty")
+    yt = cleaned.get("youtube")
+    if yt is not None:  # #Shorts helps YouTube route the upload to the Shorts feed
+        tags = [t for t in (yt.get("hashtags") or []) if str(t).lower() != "#shorts"]
+        yt["hashtags"] = ["#Shorts", *tags][:6]
     return {"engine": llm.engine_label(), "tone": tone, "platforms": cleaned}
 
 

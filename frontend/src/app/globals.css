@@ -3,22 +3,23 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --bg: #fbfaf7;
+  --bg: #ffffff;
   --surface: #ffffff;
-  --surface-2: #f4f2ee;
-  --border: #e7e3dc;
-  --text: #1a1822;
-  --muted: #6b6676;
+  --surface-2: #f4f4f6;
+  --border: #e6e6eb;
+  --text: #18181b;
+  --muted: #71717a;
   --primary: #7c3aed;
   --primary-hover: #6d28d9;
-  --primary-soft: #f1eafe;
+  --primary-soft: #f3eefe;
   --on-primary: #ffffff;
   --accent: #0e9fb8;
   --success: #15803d;
   --warning: #b45309;
   --danger: #dc2626;
   --ring: #a78bfa;
-  --shadow: 0 1px 2px rgb(20 16 30 / 0.05), 0 4px 16px rgb(20 16 30 / 0.05);
+  --shadow: 0 1px 2px rgb(20 16 30 / 0.04), 0 2px 8px rgb(20 16 30 / 0.04);
+  --banner: #2563eb;
 }
 
 .dark {
@@ -38,6 +39,7 @@
   --danger: #f87171;
   --ring: #8b5cf6;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 24px rgb(0 0 0 / 0.25);
+  --banner: #1d4ed8;
 }
 
 @theme inline {
@@ -56,6 +58,7 @@
   --color-warning: var(--warning);
   --color-danger: var(--danger);
   --color-ring: var(--ring);
+  --color-banner: var(--banner);
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-display: var(--font-display), var(--font-inter), ui-sans-serif, sans-serif;
   --shadow-card: var(--shadow);
@@ -98,6 +101,19 @@ body {
 @font-face { font-family: "HS Bebas Neue"; src: url("/api/fonts/BebasNeue-Regular.ttf"); font-display: swap; }
 @font-face { font-family: "HS Bangers"; src: url("/api/fonts/Bangers-Regular.ttf"); font-display: swap; }
 @font-face { font-family: "HS DM Serif Display"; src: url("/api/fonts/DMSerifDisplay-Regular.ttf"); font-display: swap; }
+@font-face { font-family: "HS DM Serif Display Italic"; src: url("/api/fonts/DMSerifDisplay-Italic.ttf"); font-display: swap; }
+@font-face { font-family: "HS Archivo Black"; src: url("/api/fonts/ArchivoBlack-Regular.ttf"); font-display: swap; }
+@font-face { font-family: "HS Permanent Marker"; src: url("/api/fonts/PermanentMarker-Regular.ttf"); font-display: swap; }
+@font-face { font-family: "HS Luckiest Guy"; src: url("/api/fonts/LuckiestGuy-Regular.ttf"); font-display: swap; }
+@font-face { font-family: "HS Bungee"; src: url("/api/fonts/Bungee-Regular.ttf"); font-display: swap; }
+@font-face { font-family: "HS Courier Prime"; src: url("/api/fonts/CourierPrime-Bold.ttf"); font-display: swap; }
+
+/* Caption entrance transitions (mirror the libass \move / 	 tags) */
+@keyframes cap-fade_up { from { opacity: 0; transform: translateY(var(--cap-d)); } to { opacity: 1; transform: none; } }
+@keyframes cap-fade_down { from { opacity: 0; transform: translateY(calc(var(--cap-d) * -1)); } to { opacity: 1; transform: none; } }
+@keyframes cap-fade_left { from { opacity: 0; transform: translateX(var(--cap-d)); } to { opacity: 1; transform: none; } }
+@keyframes cap-fade_right { from { opacity: 0; transform: translateX(calc(var(--cap-d) * -1)); } to { opacity: 1; transform: none; } }
+@keyframes cap-bounce { 0% { transform: scale(0.55); } 55% { transform: scale(1.14); } 100% { transform: scale(1); } }
 
 .skeleton {
   background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%);

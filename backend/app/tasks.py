@@ -93,7 +93,8 @@ def prefs_from(settings: dict, overrides: dict | None = None) -> Prefs:
         genre=s.get("genre") or "auto",
         mood=s.get("mood", "any"),
         position=s.get("position", "any"),
-        query=list(s.get("query") or []),
+        query=list(s.get("query") or []) + highlights.instruction_terms(s.get("instructions") or ""),
+        instructions=(s.get("instructions") or "").strip(),
         pad_before=0.25 if pad else 0.0,
         pad_after=0.45 if pad else 0.05,
     )
@@ -123,11 +124,31 @@ def default_edits(settings: dict, brand: dict, title: str, keywords: list[str]) 
             "style": style,
             "chunks": None,
             "keywords": keywords,
+            "transition": settings.get("caption_transition", "none"),
+            "effect": settings.get("caption_effect", "none"),
         },
         "overlays": overlays,
         "silence_removal": bool(settings.get("silence_removal", False)),
         "quality": settings.get("quality", "standard"),
+        "zoom": {
+            "start": bool(settings.get("zoom_start")),
+            "key_phrases": bool(settings.get("zoom_key_phrases", True)),
+        },
+        "logo": {"key": settings.get("logo_key"), "position": settings.get("logo_position", "top_right")},
+        "music": {"key": settings.get("music_key"), "volume": float(settings.get("music_volume", 0.16))},
+        "progress_bar": {"enabled": bool(settings.get("progress_bar")), "color": "#7C3AED"},
     }
+
+
+def _with_asset_paths(edits: dict) -> dict:
+    """Resolve stored logo/music keys to files for the renderer (paths are never saved)."""
+    out = dict(edits)
+    for name in ("logo", "music"):
+        a = dict(out.get(name) or {})
+        if a.get("key") and storage.exists(a["key"]):
+            a["path"] = str(storage.path(a["key"]))
+        out[name] = a
+    return out
 
 
 def render_clip(ctx: JobContext | None, clip: Clip, project: Project, words, on_progress=None) -> None:
@@ -159,7 +180,7 @@ def render_clip(ctx: JobContext | None, clip: Clip, project: Project, words, on_
             probe,
             clip.start,
             clip.end,
-            edits,
+            _with_asset_paths(edits),
             rf,
             words,
             storage.path(out_key),
@@ -367,6 +388,21 @@ def generate(ctx: JobContext) -> None:
             should_cancel=ctx.cancelled,
         )
         storage.path(pkey(p.id, "transcript.json")).write_text(json.dumps(tr.to_json()), encoding="utf-8")
+
+    if settings.get("transcript_only"):
+        with SessionLocal() as db:
+            pp = db.get(Project, p.id)
+            pp.status = "ready"
+            pp.analysis = {
+                "language": tr.language,
+                "stt_engine": tr.engine,
+                "words": len(tr.words),
+                "transcript_only": True,
+                "seconds": round(time.time() - t0, 1),
+            }
+            db.commit()
+        wav.unlink(missing_ok=True)
+        return
 
     # 4. analyze --------------------------------------------------------------
     ctx.stage("analyze", "Measuring audio energy, motion and scene changes")

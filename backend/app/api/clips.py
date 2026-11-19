@@ -27,6 +27,10 @@ ALLOWED_EDIT_KEYS = {
     "video",
     "quality",
     "crop_locked",
+    "zoom",
+    "logo",
+    "music",
+    "progress_bar",
 }
 
 
@@ -119,6 +123,12 @@ def update(cid: str, body: ClipEditIn, user: User = Depends(current_user), db: S
                 ]
         if "crop" in new and isinstance(new["crop"], dict):
             new["crop_locked"] = True
+        from .library import user_asset_key
+
+        for name in ("logo", "music"):
+            if isinstance(new.get(name), dict):
+                new[name] = {k: v for k, v in new[name].items() if k != "path"}
+                new[name]["key"] = user_asset_key(user, new[name].get("key"))
         c.edits = {**(c.edits or {}), **new}
     job = None
     if body.render:

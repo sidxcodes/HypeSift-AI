@@ -39,10 +39,20 @@ class GenerateSettings(BaseModel):
     aspect: Literal["9:16", "1:1", "4:5", "16:9"] = "9:16"
     crop_mode: Literal["auto", "center", "fit"] = "auto"
     captions: bool = True
-    caption_preset: Literal["clean_minimal", "bold_creator", "gaming_energy", "podcast", "cinematic", "karaoke"] = (
-        "bold_creator"
-    )
+    caption_preset: str = Field(default="bold_creator", max_length=40)
+    caption_transition: Literal["none", "fade_up", "fade_down", "fade_left", "fade_right", "bounce"] = "none"
+    caption_effect: Literal["none", "glow", "shadow3d", "typewriter", "tilt"] = "none"
     keyword_emphasis: bool = True
+    # What to look for, in the creator's own words ("moments where she shares concrete advice").
+    instructions: str = Field(default="", max_length=600)
+    zoom_start: bool = False
+    zoom_key_phrases: bool = True
+    progress_bar: bool = False
+    logo_key: str | None = Field(default=None, max_length=200)
+    logo_position: Literal["top_left", "top_right", "bottom_left", "bottom_right"] = "top_right"
+    music_key: str | None = Field(default=None, max_length=200)
+    music_volume: float = Field(default=0.16, ge=0.02, le=1.0)
+    transcript_only: bool = False  # Transcript generator: stop after speech-to-text
     language: str = Field(default="auto", max_length=8)
     quality: Literal["draft", "standard", "high"] = "standard"
     silence_removal: bool = False
@@ -53,6 +63,15 @@ class GenerateSettings(BaseModel):
     )
     tone: Literal["compelling", "professional", "funny", "energetic", "educational", "storytelling"] = "compelling"
     use_llm: bool = True
+
+    @field_validator("caption_preset")
+    @classmethod
+    def _preset(cls, v: str) -> str:
+        from .pipeline.captions import PRESETS
+
+        if v not in PRESETS:
+            raise ValueError("Unknown caption style.")
+        return v
 
     @model_validator(mode="after")
     def _durations(self) -> GenerateSettings:
@@ -131,3 +150,13 @@ class BrandKitIn(BaseModel):
     caption_style: dict[str, Any] | None = None
     watermark: str | None = Field(default=None, max_length=60)
     name: str | None = Field(default=None, max_length=120)
+    # Social profiles: platform -> handle or channel URL (shown in the post drawer)
+    socials: dict[str, str] | None = None
+    timezone: str | None = Field(default=None, max_length=64)
+
+
+class PostIn(BaseModel):
+    status: Literal["draft", "scheduled", "posted"]
+    scheduled_at: str | None = Field(default=None, max_length=40)  # ISO 8601 with offset
+    timezone: str | None = Field(default=None, max_length=64)
+    platforms: dict[str, dict[str, Any]] = Field(default_factory=dict)

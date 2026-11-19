@@ -48,6 +48,74 @@ def content_tokens(text: str) -> list[str]:
     return [t for t in tokens(text) if t not in STOPWORDS and len(t) > 2]
 
 
+def stem(t: str) -> str:
+    """Tiny suffix stripper so "mentioned" matches "mention" and "advice" matches "advices"."""
+    for suf in ("ingly", "edly", "ing", "ers", "ies", "ied", "ed", "es", "er", "ly", "s"):
+        if t.endswith(suf) and len(t) - len(suf) >= 4:
+            return t[: -len(suf)] + ("y" if suf in ("ies", "ied") else "")
+    return t
+
+
+# Words that describe the request itself rather than the topic ("find the moments when …").
+_REQUEST_WORDS = {
+    "find",
+    "moments",
+    "moment",
+    "clips",
+    "clip",
+    "parts",
+    "part",
+    "times",
+    "time",
+    "when",
+    "where",
+    "mentioned",
+    "mentions",
+    "mention",
+    "talks",
+    "talked",
+    "talking",
+    "about",
+    "shared",
+    "shares",
+    "share",
+    "says",
+    "said",
+    "speaker",
+    "video",
+    "show",
+    "shows",
+    "give",
+    "gives",
+    "want",
+    "looking",
+    "focus",
+    "anything",
+    "everything",
+    "things",
+    "thing",
+    "stuff",
+    "some",
+    "best",
+    "good",
+    "great",
+    "make",
+    "made",
+    "also",
+    "like",
+    "please",
+}
+
+
+def instruction_terms(text: str, k: int = 12) -> list[str]:
+    """Topic words from the creator's custom instructions (request words removed)."""
+    out: list[str] = []
+    for t in content_tokens(text):
+        if t not in _REQUEST_WORDS and t not in out:
+            out.append(t)
+    return out[:k]
+
+
 @dataclass
 class Sentence:
     start: float
@@ -87,6 +155,7 @@ class Prefs:
     mood: str = "any"
     position: str = "any"  # any | start | middle | end
     query: list[str] = field(default_factory=list)
+    instructions: str = ""  # free text, also given to the LLM editor
     pad_before: float = 0.25
     pad_after: float = 0.45
 
@@ -450,10 +519,13 @@ def score(c: Candidate, ctx: Context) -> Candidate:
         if mh:
             ev["relevance"].append(f"Matches the “{p.mood}” mood ({mh} cue{'s' if mh != 1 else ''})")
     if p.query:
-        qh = sum(tokset[t] for t in p.query)
-        rel += min(qh * 10, 30) - (10 if qh == 0 else 0)
-        if qh:
-            ev["relevance"].append("Mentions what you asked for: " + ", ".join(t for t in p.query if tokset[t]))
+        stems = Counter(stem(t) for t in tokset.elements())
+        hit_terms = [t for t in dict.fromkeys(p.query) if stems[stem(t)]]
+        qh = sum(stems[stem(t)] for t in dict.fromkeys(p.query))
+        cover = len(hit_terms) / max(1, len(set(p.query)))
+        rel += min(qh * 8, 26) + 20 * cover - (14 if qh == 0 else 0)
+        if hit_terms:
+            ev["relevance"].append("Mentions what you asked for: " + ", ".join(hit_terms[:5]))
     sweet_lo, sweet_hi = max(p.min_dur, 18), min(p.max_dur, 45)
     if sweet_lo <= dur <= sweet_hi:
         rel += 6
@@ -480,7 +552,9 @@ def score(c: Candidate, ctx: Context) -> Candidate:
 def finalize(c: Candidate, ctx: Context) -> Candidate:
     """Combine heuristic + optional semantic score; write human reasons."""
     if c.semantic is not None:
-        c.score = round(_clip(0.7 * c.heuristic + 0.3 * c.semantic))
+        # The LLM reads meaning (and the creator's instructions); give it more say when asked.
+        w = 0.5 if ctx.prefs.instructions else 0.4
+        c.score = round(_clip((1 - w) * c.heuristic + w * c.semantic))
     else:
         c.score = round(c.heuristic)
     dims = [k for k in DIMENSIONS if k in c.dims]
@@ -545,7 +619,10 @@ def discover(
     ctx = make_context(words, signals, prefs, weight_bias)
     cands = [score(c, ctx) for c in generate(ctx)]
     cands = position_filter(cands, prefs.position, signals.duration)
-    shortlist = suppress(cands, max(prefs.count * 2, prefs.count + 4))
+    # With custom instructions the LLM gets a wider shortlist, so it can find matches the
+    # keyword pass missed.
+    wide = 3 if prefs.instructions else 2
+    shortlist = suppress(cands, max(prefs.count * wide, prefs.count + 4))
     if semantic is not None and shortlist:
         try:
             semantic(shortlist, ctx)

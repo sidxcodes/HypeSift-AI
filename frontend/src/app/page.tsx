@@ -96,7 +96,7 @@ export default function Landing() {
             <div className="mt-3 flex items-center gap-2 text-sm text-muted">
               <Upload className="size-4" />
               or{" "}
-              <Link href="/app/new" className="font-medium text-text underline-offset-4 hover:underline">
+              <Link href="/app/new?mode=upload" className="font-medium text-text underline-offset-4 hover:underline">
                 upload a video file
               </Link>
               — MP4, MOV, MKV, WEBM

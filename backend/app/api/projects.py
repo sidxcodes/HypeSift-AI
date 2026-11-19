@@ -36,6 +36,13 @@ def latest_job(db: Session, pid: str, kinds: tuple[str, ...] = ("generate", "dis
     )
 
 
+def _check_assets(settings: GenerateSettings, user: User) -> None:
+    from .library import user_asset_key
+
+    settings.logo_key = user_asset_key(user, settings.logo_key)
+    settings.music_key = user_asset_key(user, settings.music_key)
+
+
 def _quota(db: Session, user: User) -> None:
     if active_jobs(db, user.id) >= get_settings().max_active_jobs_per_user:
         raise HTTPException(429, "You already have several jobs running. Wait for one to finish.")
@@ -53,6 +60,7 @@ def check_url(body: UrlCheckIn, user: User = Depends(current_user)):
 def create(body: ProjectCreateIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
     if body.settings.count > get_settings().max_clips:
         raise HTTPException(422, f"Up to {get_settings().max_clips} clips per run.")
+    _check_assets(body.settings, user)
     if body.start:
         _quota(db, user)
     if body.upload_id:
@@ -131,6 +139,7 @@ def regenerate(pid: str, settings: GenerateSettings, user: User = Depends(curren
     if j and j.status in ("queued", "running"):
         raise HTTPException(409, "This project is already processing.")
     _quota(db, user)
+    _check_assets(settings, user)
     p.settings = settings.model_dump()
     p.status, p.error = "queued", None
     job = enqueue(db, user_id=user.id, kind="generate", project_id=p.id)

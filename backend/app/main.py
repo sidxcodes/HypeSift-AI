@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import account, clips, misc, projects, uploads
+from .api import account, clips, library, misc, projects, uploads
 from .config import get_settings
 from .db import init_db
 from .jobs import Worker
@@ -56,7 +56,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-for r in (account.router, uploads.router, projects.router, clips.router, misc.router):
+for r in (account.router, uploads.router, projects.router, clips.router, library.router, misc.router):
     app.include_router(r)
 
 # Caption fonts, so the browser preview renders with exactly the fonts libass burns in.

@@ -14,7 +14,7 @@ SQLite/Postgres ◄────────── Worker (thread or `python -m a
                                 ├─ transcribe  faster-whisper, word timestamps (CUDA → CPU)
                                 ├─ analyze     loudness/flux/flatness @10 Hz, motion + cuts @2 Hz
                                 ├─ rank        sentence windows → 7-dim score → NMS → optional LLM
-                                ├─ render      reframe → silence cut → ASS captions → fades → encode
+                                ├─ render      reframe → silence cut → zoom → logo → ASS captions/bar → music duck → encode
                                 └─ publish     per-platform copy (LLM or template engine)
                                 │
                           Local storage (S3-compatible interface)
@@ -54,6 +54,9 @@ SQLite/Postgres ◄────────── Worker (thread or `python -m a
 | GET | `/clips` · GET/PATCH/DELETE `/clips/{id}` · POST `/clips/{id}/render` | library, editor, re-render |
 | POST/PUT | `/clips/{id}/publish` · POST `/clips/{id}/feedback`, `/clips/{id}/favorite` | copy, ratings |
 | GET | `/jobs` · `/jobs/{id}` · POST `/jobs/{id}/cancel` | real progress |
+| POST | `/assets?kind=logo\|music&name=` (raw body) | brand logo / background music, per user |
+| PUT/GET | `/clips/{id}/post` · `/posts` | post-now / schedule plan per clip, calendar feed |
+| GET | `/storage` | disk use per project, free space |
 | POST | `/assistant` | natural language → validated action → job |
 | GET | `/media?key&exp&sig[&dl]` · `/meta` · `/health` · `/fonts/*` | signed files, presets, status |
 

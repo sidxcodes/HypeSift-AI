@@ -100,13 +100,17 @@ def semantic_rank(cands, ctx, batch: int = 5) -> None:
     for i in range(0, len(cands), batch):
         group = cands[i : i + batch]
         items = "\n\n".join(f"[{n}] ({c.duration:.0f}s) {c.text[:1100]}" for n, c in enumerate(group))
+        ask = ctx.prefs.instructions
+        fit_rule = f"fit (0-10: how well it matches the creator's request: {ask[:400]!r}), " if ask else ""
+        fit_example = '"fit": 7, ' if ask else ""
         user = (
             f"Content type: {ctx.genre}. Requested mood: {ctx.prefs.mood}.\n"
-            f"Rate each excerpt. For each return: id, hook (0-10: do the first seconds grab attention), "
+            f"Rate each excerpt. For each return: id, {fit_rule}hook (0-10: would the FIRST sentence stop someone "
+            f"scrolling YouTube Shorts), "
             f"payoff (0-10: does it deliver a satisfying point/punchline/reaction), standalone (0-10: understandable "
             f"without the rest of the video), mood_fit (0-10), title (max 60 chars, accurate, no clickbait, no emojis), "
             f"why (max 18 words, concrete).\n"
-            f'Return {{"items": [{{"id": 0, "hook": 7, "payoff": 6, "standalone": 8, "mood_fit": 5, '
+            f'Return {{"items": [{{"id": 0, {fit_example}"hook": 7, "payoff": 6, "standalone": 8, "mood_fit": 5, '
             f'"title": "...", "why": "..."}}]}}\n\n{items}'
         )
         try:
@@ -122,12 +126,17 @@ def semantic_rank(cands, ctx, batch: int = 5) -> None:
                 continue
 
             mood_w = 0.15 if ctx.prefs.mood not in ("any", "") else 0.0
+            fit_w = 0.4 if ask else 0.0
+            rest = 1 - mood_w - fit_w
             sem = (
-                (0.32 - mood_w / 3) * _rating(row, "hook")
-                + (0.34 - mood_w / 3) * _rating(row, "payoff")
-                + (0.34 - mood_w / 3) * _rating(row, "standalone")
+                rest * 0.32 * _rating(row, "hook")
+                + rest * 0.34 * _rating(row, "payoff")
+                + rest * 0.34 * _rating(row, "standalone")
                 + mood_w * _rating(row, "mood_fit")
+                + fit_w * _rating(row, "fit")
             )
+            if ask:
+                c.dims["fit"] = round(_rating(row, "fit") * 10, 1)
             c.semantic = round(sem * 10, 1)
             c.dims["semantic"] = c.semantic
             t = str(row.get("title") or "").strip().strip('"')

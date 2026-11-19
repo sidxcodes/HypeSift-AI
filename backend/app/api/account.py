@@ -66,6 +66,11 @@ def brand_kit(body: BrandKitIn, user: User = Depends(current_user), db: Session 
         kit["watermark"] = body.watermark.strip()
     if body.name is not None:
         u.name = body.name.strip()
+    if body.socials is not None:
+        allowed = ("youtube", "tiktok", "instagram", "linkedin", "facebook", "x")
+        kit["socials"] = {k: str(v).strip()[:200] for k, v in body.socials.items() if k in allowed and str(v).strip()}
+    if body.timezone is not None:
+        kit["timezone"] = body.timezone.strip() or None
     u.brand_kit = kit
     db.commit()
     return user_out(u)

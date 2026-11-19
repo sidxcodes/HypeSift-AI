@@ -27,7 +27,42 @@ DEFAULT_EDITS: dict[str, Any] = {
     "audio": {"gain_db": 0.0, "normalize": True, "fade_in": 0.15, "fade_out": 0.4},
     "video": {"fade_in": 0.0, "fade_out": 0.25},
     "quality": "standard",  # draft | standard | high
+    "zoom": {"start": False, "key_phrases": False},  # punch-in at the start / on key phrases
+    "logo": {"key": None, "position": "top_right", "size": 0.16, "opacity": 0.92},
+    "music": {"key": None, "volume": 0.16},  # background bed, ducked under speech
+    "progress_bar": {"enabled": False, "color": "#7C3AED"},
 }
+
+LOGO_POS = {
+    "top_left": "{m}:{m}",
+    "top_right": "W-w-{m}:{m}",
+    "bottom_left": "{m}:H-h-{m}",
+    "bottom_right": "W-w-{m}:H-h-{m}",
+}
+
+
+def zoom_moments(chunks: list[dict], keywords: set[str], out_dur: float, limit: int = 6) -> list[float]:
+    """Output-timeline moments where a key phrase is spoken, at least 3.5 s apart."""
+    hits: list[float] = []
+    for ch in chunks:
+        for w in ch.get("words") or []:
+            tok = "".join(c for c in w["w"].lower() if c.isalnum())
+            if tok in keywords and 0.8 < w["s"] < out_dur - 1.2 and (not hits or w["s"] - hits[-1] >= 3.5):
+                hits.append(round(w["s"], 2))
+    return hits[:limit]
+
+
+def zoom_expr(start: bool, moments: list[float]) -> str | None:
+    """zoompan z(t): ease out of a 1.18x punch at the start; quick 1.12x punch-ins held ~1.1 s."""
+    terms = []
+    if start:
+        terms.append("0.18*pow(max(0,1-it/1.1),2)")
+    for m in moments:
+        a, b = m - 0.08, m + 1.1
+        terms.append(f"0.12*min(1,max(0,(it-{a:.2f})/0.14))*min(1,max(0,({b:.2f}-it)/0.3))")
+    if not terms:
+        return None
+    return "1+" + "+".join(terms)
 
 
 def merged_edits(edits: dict | None) -> dict:
@@ -213,7 +248,10 @@ def render(
         o["start"] = fmap(float(o.get("start", 0))) or 0.0
         o["end"] = fmap(float(o.get("end", out_dur))) or out_dur
         overlays.append(o)
-    ass = cap.build_ass(W, H, mapped, style, overlays, keywords, out_dur)
+    pb = edits.get("progress_bar") or {}
+    ass = cap.build_ass(
+        W, H, mapped, style, overlays, keywords, out_dur, progress_bar=pb.get("color") if pb.get("enabled") else None
+    )
     (work_dir / "captions.ass").write_text(ass, encoding="utf-8")
     srt = cap.build_srt(mapped, uppercase=bool(style and style.get("uppercase")))
 
@@ -236,7 +274,28 @@ def render(
         graph.append(f"{cat_in}concat=n={n}:v=1:a={1 if has_a else 0}[vc]" + ("[ac]" if has_a else ""))
         vlast, alast = "[vc]", "[ac]" if has_a else None
 
-    vf = [f"ass=filename=captions.ass:fontsdir='{_fonts_rel(work_dir)}'"]
+    vf = []
+    zm = edits.get("zoom") or {}
+    zx = zoom_expr(
+        bool(zm.get("start")), zoom_moments(mapped, set(keywords or ()), out_dur) if zm.get("key_phrases") else []
+    )
+    fps = min(probe.fps, 60) or 30
+    if zx:
+        vf.append(f"zoompan=z='{zx}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s={W}x{H}:fps={fps:.3f}")
+    logo = edits.get("logo") or {}
+    logo_path = Path(logo["path"]) if logo.get("path") else None
+    if logo_path and logo_path.exists():
+        # captions go on top of the logo; the logo sits on the reframed (and zoomed) picture
+        pre = f"{vlast}{','.join(vf) or 'null'}[vz]"
+        graph.append(pre)
+        lw = int(W * max(0.06, min(0.4, float(logo.get("size") or 0.16)))) // 2 * 2
+        op = max(0.1, min(1.0, float(logo.get("opacity") or 0.92)))
+        m = int(36 * W / 1080)
+        pos = LOGO_POS.get(logo.get("position") or "top_right", LOGO_POS["top_right"]).format(m=m)
+        graph.append(f"[1:v]scale={lw}:-1,format=rgba,colorchannelmixer=aa={op:.2f}[lg]")
+        graph.append(f"[vz][lg]overlay={pos}:format=auto[vl]")
+        vlast, vf = "[vl]", []
+    vf.append(f"ass=filename=captions.ass:fontsdir='{_fonts_rel(work_dir)}'")
     v = edits.get("video") or {}
     if float(v.get("fade_in") or 0) > 0:
         vf.append(f"fade=t=in:st=0:d={float(v['fade_in']):.2f}")
@@ -245,7 +304,14 @@ def render(
         vf.append(f"fade=t=out:st={max(0, out_dur - d):.2f}:d={d:.2f}")
     vf.append("format=yuv420p")
     graph.append(f"{vlast}{','.join(vf)}[vout]")
-    if has_a:
+    music = edits.get("music") or {}
+    music_path = Path(music["path"]) if music.get("path") else None
+    has_music = bool(music_path and music_path.exists())
+    mus_idx = 2 if (logo_path and logo_path.exists()) else 1
+    if has_music:
+        vol = max(0.02, min(1.0, float(music.get("volume") or 0.16)))
+        graph.append(f"[{mus_idx}:a]atrim=0:{out_dur:.3f},volume={vol:.3f},aresample=48000[mus]")
+    if has_a or has_music:
         a = edits.get("audio") or {}
         af = []
         if float(a.get("gain_db") or 0) != 0:
@@ -257,8 +323,18 @@ def render(
         if float(a.get("fade_out") or 0) > 0:
             d = float(a["fade_out"])
             af.append(f"afade=t=out:st={max(0, out_dur - d):.2f}:d={d:.2f}")
+        fades = [x for x in af if x.startswith("afade")]
+        af = [x for x in af if not x.startswith("afade")]
         af.append("aresample=48000")
-        graph.append(f"{alast}{','.join(af)}[aout]")
+        if has_a and has_music:
+            # speech first, then the music bed ducked whenever someone talks
+            graph.append(f"{alast}{','.join(af)},asplit=2[sp][key]")
+            graph.append("[mus][key]sidechaincompress=threshold=0.02:ratio=9:attack=15:release=400[duck]")
+            graph.append(f"[sp][duck]amix=inputs=2:duration=first:normalize=0{''.join(',' + f for f in fades)}[aout]")
+        elif has_music:
+            graph.append(f"[mus]anull{''.join(',' + f for f in fades)}[aout]")
+        else:
+            graph.append(f"{alast}{','.join(af + fades)}[aout]")
     (work_dir / "graph.txt").write_text(";\n".join(graph), encoding="utf-8")
 
     tmp_out = work_dir / "out.mp4"
@@ -273,12 +349,18 @@ def render(
         f"{end - start:.3f}",
         "-i",
         str(src),
+    ]
+    if logo_path and logo_path.exists():
+        args += ["-i", str(logo_path)]
+    if has_music:
+        args += ["-stream_loop", "-1", "-i", str(music_path)]
+    args += [
         "-/filter_complex",
         "graph.txt",
         "-map",
         "[vout]",
     ]
-    if has_a:
+    if has_a or has_music:
         args += ["-map", "[aout]", "-c:a", "aac", "-b:a", "160k"]
     args += [
         *ffmpeg.encoder_args(edits["quality"]),

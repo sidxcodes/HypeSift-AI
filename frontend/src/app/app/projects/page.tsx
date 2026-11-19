@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus } from "lucide-react";
+import { Upload } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ProjectList } from "@/components/ProjectList";
@@ -19,10 +19,13 @@ export default function ProjectsPage() {
   return (
     <div>
       <div className="flex items-center justify-between">
-        <h1 className="font-display text-2xl font-bold tracking-tight">Projects</h1>
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Projects</h1>
+          <p className="text-sm text-muted">Every video you&apos;ve turned into clips.</p>
+        </div>
         <Link href="/app/new">
           <Button>
-            <Plus className="size-4" /> New project
+            <Upload className="size-4" /> Upload a video
           </Button>
         </Link>
       </div>

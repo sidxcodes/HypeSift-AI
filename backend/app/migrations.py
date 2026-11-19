@@ -13,6 +13,7 @@ from sqlalchemy import Engine, inspect, text
 MIGRATIONS: list[tuple[int, str, list[str]]] = [
     (1, "baseline", []),
     (2, "clip feedback note", ["ALTER TABLE clips ADD COLUMN feedback_note TEXT"]),
+    (3, "clip post/schedule plan", ["ALTER TABLE clips ADD COLUMN post JSON DEFAULT '{}'"]),
 ]
 
 

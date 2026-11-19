@@ -38,6 +38,8 @@ def meta():
         enc = "unavailable"
     return {
         "caption_presets": captions.PRESETS,
+        "caption_transitions": captions.TRANSITIONS,
+        "caption_effects": captions.EFFECTS,
         "fonts": captions.FONT_FILES,
         "dimensions": DIMENSIONS,
         "genres": GENRE_LABELS,

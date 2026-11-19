@@ -95,6 +95,8 @@ class Clip(Base):
     edits: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     reframe: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)  # crop path from analysis
     publish: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    # Post/schedule plan: {status: draft|scheduled|posted, scheduled_at, timezone, platforms: {...}, posted_at}
+    post: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     # pending | rendering | rendered | failed
     render_status: Mapped[str] = mapped_column(String(20), default="pending")
     render_error: Mapped[str | None] = mapped_column(Text, nullable=True)

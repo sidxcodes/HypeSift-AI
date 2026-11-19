@@ -1,19 +1,66 @@
 "use client";
 
-import { ArrowLeft, Clapperboard, RefreshCw, Search, Trash2 } from "lucide-react";
+import { ChevronRight, Clapperboard, Home, Loader2, RefreshCw, Rows3, Sparkles, Trash2, Upload, X } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Assistant } from "@/components/Assistant";
-import { ClipCard } from "@/components/ClipCard";
 import { ClipDrawer } from "@/components/ClipDrawer";
-import { JobProgress } from "@/components/JobProgress";
+import { ClipRow } from "@/components/ClipRow";
+import { PostDrawer } from "@/components/PostDrawer";
 import { useToast } from "@/components/toast";
-import { Badge, Button, Card, EmptyState, Input, Segmented, Skeleton } from "@/components/ui";
-import { api, fmtTime } from "@/lib/api";
-import type { Clip, Job, Project } from "@/lib/types";
+import { Button, cx, EmptyState, Select, Skeleton } from "@/components/ui";
+import { api } from "@/lib/api";
+import type { Clip, Goal, Job, Project } from "@/lib/types";
 
-type Sort = "score" | "time" | "length";
+type Sort = Goal | "time" | "length";
+const SORTS: { value: Sort; label: string }[] = [
+  { value: "general", label: "✨ General mix" },
+  { value: "views", label: "🔥 More views" },
+  { value: "trust", label: "🤝 Build trust" },
+  { value: "educate", label: "🎓 Teach something" },
+  { value: "entertain", label: "😂 Entertain" },
+  { value: "time", label: "Timeline order" },
+  { value: "length", label: "Shortest first" },
+];
+
+const STEPS: { label: string; stages: string[] }[] = [
+  { label: "Processing", stages: ["queued", "ingest", "prepare"] },
+  { label: "Transcribing", stages: ["transcribe"] },
+  { label: "Analyzing", stages: ["analyze", "rank"] },
+  { label: "Generating clips", stages: ["render", "publish"] },
+];
+
+function Banner({ job, onCancel }: { job: Job; onCancel: () => void }) {
+  const idx = Math.max(0, STEPS.findIndex((s) => s.stages.includes(job.stage)));
+  return (
+    <div className="flex flex-wrap items-center gap-4 rounded-2xl bg-banner px-5 py-3.5 text-white">
+      <div className="relative grid size-9 shrink-0 place-items-center rounded-full bg-white/15">
+        <Loader2 className="size-5 animate-spin" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-semibold">
+          Your clips are being generated… <span className="font-normal opacity-80">{Math.round(job.progress * 100)}%</span>
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+          {STEPS.map((s, i) => (
+            <span key={s.label} className="inline-flex items-center gap-1.5">
+              <span className={cx(i < idx ? "opacity-70" : i === idx ? "font-semibold" : "opacity-45")}>{s.label}</span>
+              {i < STEPS.length - 1 && <ChevronRight className="size-3 opacity-50" />}
+            </span>
+          ))}
+          <span className="ml-1 truncate opacity-70">· {job.message}</span>
+        </div>
+      </div>
+      <button onClick={onCancel} className="rounded-lg px-2 py-1.5 text-xs opacity-80 hover:bg-white/10 hover:opacity-100 cursor-pointer">
+        Cancel
+      </button>
+      <Link href="/app/new" className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-white px-3.5 text-sm font-medium text-banner hover:bg-white/90">
+        <Upload className="size-4" /> Upload another video
+      </Link>
+    </div>
+  );
+}
 
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
@@ -22,10 +69,13 @@ export default function ProjectPage() {
   const [p, setP] = useState<Project | null>(null);
   const [error, setError] = useState("");
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [sort, setSort] = useState<Sort>("score");
-  const [filter, setFilter] = useState("all");
-  const [q, setQ] = useState("");
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [tab, setTab] = useState<"all" | "scheduled" | "posted">("all");
+  const [sort, setSort] = useState<Sort>("general");
+  const [compact, setCompact] = useState(false);
+  const [detailsId, setDetailsId] = useState<string | null>(null);
+  const [postId, setPostId] = useState<string | null>(null);
+  const [ask, setAsk] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -48,34 +98,51 @@ export default function ProjectPage() {
     return () => clearInterval(i);
   }, [busy, load]);
 
+  const all = p?.clips ?? [];
+  const counts = {
+    all: all.length,
+    scheduled: all.filter((c) => c.post?.status === "scheduled").length,
+    posted: all.filter((c) => c.post?.status === "posted").length,
+  };
   const clips = useMemo(() => {
-    let cs = [...(p?.clips ?? [])];
-    if (filter === "favorites") cs = cs.filter((c) => c.favorite);
-    if (filter === "short") cs = cs.filter((c) => (c.output_duration ?? c.duration) <= 30);
-    if (filter === "long") cs = cs.filter((c) => (c.output_duration ?? c.duration) > 30);
-    if (q.trim()) {
-      const t = q.toLowerCase();
-      cs = cs.filter((c) => c.title.toLowerCase().includes(t) || c.text.toLowerCase().includes(t));
-    }
-    cs.sort((a, b) => (sort === "score" ? b.score - a.score : sort === "time" ? a.start - b.start : (a.output_duration ?? a.duration) - (b.output_duration ?? b.duration)));
+    let cs = [...all];
+    if (tab !== "all") cs = cs.filter((c) => c.post?.status === tab);
+    const g = (c: Clip, k: Goal) => (k === "views" ? c.insights?.viral : c.insights?.goals?.[k]) ?? c.score;
+    cs.sort((a, b) =>
+      sort === "time" ? a.start - b.start : sort === "length" ? (a.output_duration ?? a.duration) - (b.output_duration ?? b.duration) : g(b, sort) - g(a, sort),
+    );
     return cs;
-  }, [p, sort, filter, q]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p, sort, tab]);
 
-  if (error) return <EmptyState icon={<Clapperboard className="size-6" />} title="Project unavailable" body={error} action={<Link href="/app/projects"><Button variant="secondary">Back to projects</Button></Link>} />;
+  if (error)
+    return (
+      <EmptyState
+        icon={<Clapperboard className="size-6" />}
+        title="Project unavailable"
+        body={error}
+        action={
+          <Link href="/app/projects">
+            <Button variant="secondary">Back to projects</Button>
+          </Link>
+        }
+      />
+    );
   if (!p) {
     return (
       <div className="space-y-4">
-        <Skeleton className="h-8 w-72" />
-        <Skeleton className="h-32" />
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-96" />)}</div>
+        <Skeleton className="h-5 w-96" />
+        <Skeleton className="h-16" />
+        {[0, 1].map((i) => (
+          <Skeleton key={i} className="h-64" />
+        ))}
       </div>
     );
   }
 
   const genJob = p.job;
-  const openClip = p.clips?.find((c) => c.id === openId) ?? null;
+  const running = genJob && genJob.kind === "generate" && (genJob.status === "running" || genJob.status === "queued");
   const discoverJobs = jobs.filter((j) => j.kind === "discover");
-  const a = p.analysis as Record<string, string | number | boolean | undefined>;
 
   const regenerate = async () => {
     try {
@@ -86,106 +153,161 @@ export default function ProjectPage() {
       toast("error", (e as Error).message);
     }
   };
-  const remove = async () => {
+  const removeProject = async () => {
     if (!confirm(`Delete “${p.name}” and all its clips? This can't be undone.`)) return;
     await api.deleteProject(p.id);
     router.replace("/app/projects");
   };
+  const removeClip = async (c: Clip) => {
+    if (!confirm(`Delete “${c.title}”? This can't be undone.`)) return;
+    await api.deleteClip(c.id);
+    load();
+  };
+  const removeSelected = async () => {
+    if (!confirm(`Delete ${selected.size} selected clip${selected.size === 1 ? "" : "s"}? This can't be undone.`)) return;
+    await Promise.all([...selected].map((cid) => api.deleteClip(cid)));
+    setSelected(new Set());
+    load();
+  };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="min-w-0">
-          <Link href="/app/projects" className="inline-flex items-center gap-1 text-sm text-muted hover:text-text">
-            <ArrowLeft className="size-4" /> Projects
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <nav className="flex min-w-0 items-center gap-1.5 text-sm" aria-label="Breadcrumb">
+          <Link href="/app/projects" className="inline-flex items-center gap-1.5 text-muted hover:text-text">
+            <Home className="size-4" /> Projects
           </Link>
-          <h1 className="mt-1 truncate font-display text-2xl font-bold tracking-tight">{p.name}</h1>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
-            {p.duration != null && <span>{fmtTime(p.duration)} source</span>}
-            {p.width && <span>{p.width}×{p.height}</span>}
-            {a.genre && <span>Detected: {String(a.genre)}</span>}
-            {a.language && a.language !== "none" && <span>Language: {String(a.language)}</span>}
-            {a.seconds && <span>Processed in {Math.round(Number(a.seconds))}s</span>}
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={regenerate} disabled={busy}>
+          <ChevronRight className="size-4 shrink-0 text-muted" />
+          <span className="truncate font-medium">{p.name}</span>
+        </nav>
+        <div className="flex gap-1">
+          <Button variant="ghost" size="sm" onClick={regenerate} disabled={!!busy} title="Run AI Generate again">
             <RefreshCw className="size-4" /> Regenerate
           </Button>
-          <Button variant="danger" size="sm" onClick={remove} aria-label="Delete project">
+          <Button variant="ghost" size="sm" onClick={removeProject} aria-label="Delete project">
             <Trash2 className="size-4" />
           </Button>
         </div>
       </div>
 
-      {genJob && genJob.kind === "generate" && (genJob.status === "running" || genJob.status === "queued" || genJob.status === "failed") && (
-        <JobProgress job={genJob} onCancel={() => api.cancelJob(genJob.id).then(load)} />
-      )}
+      {running && genJob && <Banner job={genJob} onCancel={() => api.cancelJob(genJob.id).then(load)} />}
       {discoverJobs.map((j) => (
-        <JobProgress key={j.id} job={j} onCancel={() => api.cancelJob(j.id).then(load)} />
+        <Banner key={j.id} job={j} onCancel={() => api.cancelJob(j.id).then(load)} />
       ))}
-
-      {p.status === "ready" && (
-        <Card className="flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-3 text-sm">
-          <span className="font-medium">{p.clips?.length ?? 0} clips</span>
-          <span className="text-muted">Speech: {String(a.stt_engine ?? "–")}</span>
-          <span className="text-muted">Ranking: {String(a.ranking_engine ?? "–")}</span>
-          <span className="text-muted">{Number(a.words ?? 0).toLocaleString()} words · {String(a.scene_cuts ?? 0)} scene cuts</span>
-        </Card>
-      )}
-
-      <Assistant projectId={p.id} onAction={load} disabled={p.status !== "ready"} />
-
-      {(p.clips?.length ?? 0) > 0 && (
-        <div className="flex flex-wrap items-center gap-3">
-          <Segmented value={sort} onChange={setSort} options={[{ value: "score", label: "Top score" }, { value: "time", label: "Timeline" }, { value: "length", label: "Length" }]} />
-          <Segmented value={filter} onChange={setFilter} options={[{ value: "all", label: "All" }, { value: "short", label: "≤30s" }, { value: "long", label: ">30s" }, { value: "favorites", label: "★" }]} />
-          <div className="relative ml-auto w-full sm:w-64">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search clip transcripts" className="pl-9" aria-label="Search clips" />
-          </div>
+      {p.status === "failed" && (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-danger/30 bg-danger/5 px-5 py-3.5 text-sm">
+          <span className="flex-1 text-danger">{p.error ?? "This project didn't finish."}</span>
+          <Button size="sm" onClick={regenerate}>
+            Try again
+          </Button>
         </div>
       )}
 
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border">
+        <div className="flex gap-1" role="tablist">
+          {(["all", "scheduled", "posted"] as const).map((t) => (
+            <button
+              key={t}
+              role="tab"
+              aria-selected={tab === t}
+              onClick={() => setTab(t)}
+              className={cx(
+                "-mb-px border-b-2 px-3 pb-2.5 pt-1 text-sm transition cursor-pointer",
+                tab === t ? "border-primary font-medium text-text" : "border-transparent text-muted hover:text-text",
+              )}
+            >
+              {t === "all" ? "All clips" : t === "scheduled" ? "Scheduled" : "Posted"}
+              {counts[t] > 0 && <span className="ml-1.5 text-xs text-muted">{counts[t]}</span>}
+            </button>
+          ))}
+        </div>
+        <div className="mb-2 flex items-center gap-2">
+          {selected.size > 0 && (
+            <Button variant="danger" size="sm" onClick={removeSelected}>
+              <Trash2 className="size-4" /> Delete {selected.size}
+            </Button>
+          )}
+          <Button variant={ask ? "secondary" : "ghost"} size="sm" onClick={() => setAsk((a) => !a)} disabled={p.status !== "ready"}>
+            {ask ? <X className="size-4" /> : <Sparkles className="size-4" />} Ask AI
+          </Button>
+          <button
+            onClick={() => setCompact((c) => !c)}
+            className={cx("grid size-8 place-items-center rounded-lg cursor-pointer", compact ? "bg-surface-2 text-text" : "text-muted hover:bg-surface-2")}
+            aria-label="Compact view"
+            aria-pressed={compact}
+          >
+            <Rows3 className="size-4" />
+          </button>
+          <span className="whitespace-nowrap text-xs text-muted">Sort by</span>
+          <Select value={sort} onChange={(v) => setSort(v as Sort)} options={SORTS} className="h-8 w-44 text-xs" />
+        </div>
+      </div>
+
+      {ask && <Assistant projectId={p.id} onAction={load} disabled={p.status !== "ready"} />}
+
       {clips.length > 0 ? (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-          {clips.map((c: Clip) => (
-            <ClipCard
+        <div>
+          {clips.map((c) => (
+            <ClipRow
               key={c.id}
               clip={c}
-              index={(p.clips ?? []).indexOf(c)}
-              onOpen={() => setOpenId(c.id)}
+              goal={sort}
+              compact={compact}
+              onPost={() => setPostId(c.id)}
+              onDetails={() => setDetailsId(c.id)}
               onFavorite={() => api.favorite(c.id, !c.favorite).then(load)}
+              onDelete={() => removeClip(c)}
+              selected={selected.has(c.id)}
+              onSelect={(v) =>
+                setSelected((s) => {
+                  const n = new Set(s);
+                  if (v) n.add(c.id);
+                  else n.delete(c.id);
+                  return n;
+                })
+              }
             />
           ))}
         </div>
-      ) : p.status === "ready" ? (
-        <EmptyState icon={<Search className="size-6" />} title="No clips match" body="Try a different filter or search." />
-      ) : p.status === "failed" ? (
+      ) : running || p.status === "queued" ? (
+        <div>
+          {[0, 1].map((i) => (
+            <div key={i} className="flex gap-3 border-b border-border py-5">
+              <Skeleton className="aspect-[9/16] w-[150px] shrink-0" />
+              <div className="flex-1 space-y-3">
+                <Skeleton className="h-5 w-2/3" />
+                <Skeleton className="h-3 w-40" />
+                <div className="flex gap-2 opacity-60">
+                  <Skeleton className="h-8 w-24" />
+                  <Skeleton className="h-8 w-24" />
+                  <Skeleton className="h-8 w-32" />
+                </div>
+                <Skeleton className="h-24 max-w-2xl" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : p.status === "ready" && p.analysis?.transcript_only ? (
         <EmptyState
           icon={<Clapperboard className="size-6" />}
-          title="This project didn't finish"
-          body={p.error ?? "Something went wrong."}
-          action={<Button onClick={regenerate}>Try again</Button>}
+          title="Transcript ready"
+          body="This project was made with the Transcript generator."
+          action={
+            <Link href="/app/transcripts">
+              <Button variant="secondary">Open Transcript generator</Button>
+            </Link>
+          }
         />
-      ) : (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {[0, 1, 2].map((i) => (
-            <Card key={i} className="overflow-hidden">
-              <Skeleton className="aspect-[9/14] rounded-none" />
-              <div className="space-y-2 p-4">
-                <Skeleton className="h-4 w-3/4" />
-                <Skeleton className="h-3 w-1/2" />
-              </div>
-            </Card>
-          ))}
-          <p className="text-sm text-muted sm:col-span-2 lg:col-span-3">
-            <Badge tone="primary">Working</Badge> Clips appear here as soon as they are rendered.
-          </p>
-        </div>
-      )}
+      ) : p.status === "ready" ? (
+        <EmptyState
+          icon={<Clapperboard className="size-6" />}
+          title={tab === "all" ? "No clips" : tab === "scheduled" ? "Nothing scheduled yet" : "Nothing posted yet"}
+          body={tab === "all" ? "Ask AI to find more moments." : "Use “Post or schedule” on a clip."}
+        />
+      ) : null}
 
-      <ClipDrawer clip={openClip} onClose={() => setOpenId(null)} onChange={load} />
+      <ClipDrawer clip={all.find((c) => c.id === detailsId) ?? null} onClose={() => setDetailsId(null)} onChange={load} />
+      <PostDrawer clip={all.find((c) => c.id === postId) ?? null} onClose={() => setPostId(null)} onChange={load} />
     </div>
   );
 }

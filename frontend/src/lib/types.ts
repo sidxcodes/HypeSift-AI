@@ -1,5 +1,11 @@
 export type User = { id: string; email: string; name: string; brand_kit: BrandKit };
-export type BrandKit = { caption_preset?: string | null; caption_style?: Partial<CaptionStyle>; watermark?: string };
+export type BrandKit = {
+  caption_preset?: string | null;
+  caption_style?: Partial<CaptionStyle>;
+  watermark?: string;
+  socials?: Record<string, string>;
+  timezone?: string | null;
+};
 
 export type JobStage = { key: string; status: "pending" | "running" | "done" | "failed"; started_at?: string };
 export type Job = {
@@ -30,7 +36,18 @@ export type GenerateSettings = {
   crop_mode: "auto" | "center" | "fit";
   captions: boolean;
   caption_preset: string;
+  caption_transition: Transition;
+  caption_effect: Effect;
   keyword_emphasis: boolean;
+  instructions: string;
+  zoom_start: boolean;
+  zoom_key_phrases: boolean;
+  progress_bar: boolean;
+  logo_key: string | null;
+  logo_position: "top_left" | "top_right" | "bottom_left" | "bottom_right";
+  music_key: string | null;
+  music_volume: number;
+  transcript_only: boolean;
   language: string;
   quality: "draft" | "standard" | "high";
   silence_removal: boolean;
@@ -40,6 +57,9 @@ export type GenerateSettings = {
   tone: string;
   use_llm: boolean;
 };
+
+export type Transition = "none" | "fade_up" | "fade_down" | "fade_left" | "fade_right" | "bounce";
+export type Effect = "none" | "glow" | "shadow3d" | "typewriter" | "tilt";
 
 export type CaptionStyle = {
   label: string;
@@ -59,6 +79,9 @@ export type CaptionStyle = {
   animation: "none" | "pop" | "highlight" | "fade" | "karaoke";
   emphasis: boolean;
   emphasis_color: string;
+  glow?: number;
+  glow_color?: string;
+  opacity?: number;
   size_scale?: number;
 };
 
@@ -68,12 +91,39 @@ export type Overlay = { kind: "title" | "watermark"; text: string; start: number
 export type Edits = {
   aspect: "9:16" | "1:1" | "4:5" | "16:9";
   crop: { mode: "auto" | "manual" | "center" | "split" | "fit"; x: number; y: number; zoom: number };
-  captions: { enabled: boolean; preset: string; style: Partial<CaptionStyle>; chunks: Chunk[] | null; keywords?: string[] };
+  captions: {
+    enabled: boolean;
+    preset: string;
+    style: Partial<CaptionStyle>;
+    chunks: Chunk[] | null;
+    keywords?: string[];
+    transition?: Transition;
+    effect?: Effect;
+  };
   overlays: Overlay[];
   silence_removal: boolean;
   audio?: { gain_db: number; normalize: boolean; fade_in: number; fade_out: number };
   video?: { fade_in: number; fade_out: number };
   quality: "draft" | "standard" | "high";
+  zoom?: { start: boolean; key_phrases: boolean };
+  logo?: { key: string | null; position?: string; size?: number; opacity?: number };
+  music?: { key: string | null; volume?: number };
+  progress_bar?: { enabled: boolean; color?: string };
+};
+
+export type PostPlan = {
+  status?: "draft" | "scheduled" | "posted";
+  scheduled_at?: string | null;
+  timezone?: string | null;
+  posted_at?: string;
+  platforms?: Record<string, Record<string, unknown>>;
+};
+
+export type Goal = "general" | "views" | "trust" | "educate" | "entertain";
+export type Insights = {
+  goals: Record<Goal, number>;
+  checklist: { key: string; ok: boolean | null; label: string; tip: string }[];
+  viral: number;
 };
 
 export type Reframe = {
@@ -129,6 +179,8 @@ export type Clip = {
   thumb_url: string | null;
   srt_url: string | null;
   project_name: string | null;
+  post: PostPlan;
+  insights: Insights;
 };
 
 export type Project = {
@@ -156,6 +208,8 @@ export type Project = {
 
 export type Meta = {
   caption_presets: Record<string, CaptionStyle>;
+  caption_transitions: Record<Transition, string>;
+  caption_effects: Record<Effect, string>;
   fonts: Record<string, string>;
   dimensions: Record<string, string>;
   genres: Record<string, string>;
@@ -191,4 +245,14 @@ export type ClipDetail = {
   chunks: Chunk[];
   envelope: { start: number; hop: number; loudness: number[] } | null;
   job: Job | null;
+};
+
+export type Asset = { key: string; name: string; kind: "logo" | "music"; size: number; url: string | null };
+
+export type StorageUsage = {
+  projects: { id: string; name: string; clips: number; source_bytes: number; clip_bytes: number; total: number; thumb_url: string | null }[];
+  assets_bytes: number;
+  total: number;
+  disk_free: number;
+  disk_total: number;
 };

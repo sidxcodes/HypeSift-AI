@@ -1,21 +1,43 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, FileVideo, Link2, Loader2, Settings2, Upload, Wand2, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Ban,
+  Check,
+  ChevronDown,
+  FileVideo,
+  Info,
+  Lightbulb,
+  Loader2,
+  Music,
+  Sparkles,
+  Upload,
+  X,
+} from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, DEFAULT_SETTINGS, fmtBytes, fmtTime, uploadFile } from "@/lib/api";
-import type { GenerateSettings, UrlInfo } from "@/lib/types";
+import { chunkWords } from "@/lib/captions";
+import type { Asset, CaptionStyle, Effect, GenerateSettings, Transition, UrlInfo } from "@/lib/types";
 import { useSession } from "./AppShell";
-import { CaptionSample } from "./CaptionPreview";
+import { CaptionOverlay, CaptionSample } from "./CaptionPreview";
 import { useToast } from "./toast";
-import { Badge, Button, Card, cx, Field, Input, Progress, Segmented, Select, Switch } from "./ui";
+import { Button, cx, Input, Select, Switch } from "./ui";
 
-const LENGTHS = [
-  { key: "short", label: "15–30s", min: 15, max: 30 },
-  { key: "standard", label: "20–60s", min: 20, max: 60 },
-  { key: "long", label: "45–90s", min: 45, max: 90 },
-  { key: "custom", label: "Custom", min: 0, max: 0 },
-] as const;
+const LANGS: [string, string][] = [
+  ["auto", "Auto-detect"], ["en", "English"], ["hi", "Hindi"], ["es", "Spanish"], ["fr", "French"], ["de", "German"],
+  ["pt", "Portuguese"], ["it", "Italian"], ["ja", "Japanese"], ["ko", "Korean"], ["zh", "Chinese"], ["ar", "Arabic"],
+  ["ru", "Russian"], ["tr", "Turkish"], ["id", "Indonesian"], ["bn", "Bengali"], ["ta", "Tamil"], ["te", "Telugu"],
+  ["mr", "Marathi"], ["ur", "Urdu"],
+];
+
+const SIZES: { value: GenerateSettings["aspect"]; label: string }[] = [
+  { value: "9:16", label: "Portrait (9:16) · Shorts, Reels, TikTok" },
+  { value: "1:1", label: "Square (1:1)" },
+  { value: "4:5", label: "Vertical (4:5) · Feed" },
+  { value: "16:9", label: "Landscape (16:9)" },
+];
 
 const PLATFORM_LABELS: Record<string, string> = {
   youtube: "YouTube Shorts",
@@ -26,37 +48,282 @@ const PLATFORM_LABELS: Record<string, string> = {
   x: "X",
 };
 
+const SAMPLE = "This is how your captions will look on every clip".split(" ");
+
+export function youtubeId(url: string): string | null {
+  const m = url.match(/(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/))([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+
 type LocalMeta = { duration: number; width: number; height: number; thumb: string | null };
+
+// ----------------------------------------------------------------------------- small building blocks
+
+function Section({ title, info, children, className }: { title: string; info?: string; children: React.ReactNode; className?: string }) {
+  return (
+    <section className={cx("py-4", className)}>
+      <h3 className="mb-2 flex items-center gap-1.5 text-sm font-medium">
+        {title}
+        {info && (
+          <span title={info} className="text-muted cursor-help">
+            <Info className="size-3.5" />
+          </span>
+        )}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+function Chips<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: [T, string][] }) {
+  return (
+    <div className="flex flex-wrap gap-1 rounded-xl bg-surface-2 p-1.5">
+      {options.map(([v, label]) => (
+        <button
+          key={v}
+          type="button"
+          onClick={() => onChange(v)}
+          aria-pressed={value === v}
+          className={cx(
+            "h-8 rounded-lg px-3 text-xs font-medium transition cursor-pointer",
+            value === v ? "bg-surface text-primary ring-1 ring-primary shadow-sm" : "text-muted hover:text-text",
+          )}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Tile({ selected, onClick, label, bg, children }: { selected: boolean; onClick: () => void; label: string; bg?: string | null; children: React.ReactNode }) {
+  return (
+    <button type="button" onClick={onClick} aria-pressed={selected} aria-label={label} className="group text-center cursor-pointer">
+      <div
+        className={cx(
+          "relative grid aspect-[16/11] place-items-center overflow-hidden rounded-xl border-2 transition",
+          selected ? "border-primary" : "border-transparent group-hover:border-primary/40",
+        )}
+        style={{ background: bg ? `linear-gradient(rgba(0,0,0,.35),rgba(0,0,0,.35)), url(${bg}) center/cover` : "#3f3f46" }}
+      >
+        {children}
+        {selected && (
+          <span className="absolute right-1 top-1 grid size-4 place-items-center rounded-full bg-primary text-white">
+            <Check className="size-3" />
+          </span>
+        )}
+      </div>
+      <div className="mt-1 text-[11px] text-muted">{label}</div>
+    </button>
+  );
+}
+
+function AssetBox({
+  kind,
+  asset,
+  onChange,
+  children,
+}: {
+  kind: "logo" | "music";
+  asset: Asset | null;
+  onChange: (a: Asset | null) => void;
+  children?: React.ReactNode;
+}) {
+  const toast = useToast();
+  const ref = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const pick = async (f?: File | null) => {
+    if (!f) return;
+    setBusy(true);
+    try {
+      onChange(await api.uploadAsset(kind, f));
+    } catch (e) {
+      toast("error", (e as Error).message);
+    } finally {
+      setBusy(false);
+      if (ref.current) ref.current.value = "";
+    }
+  };
+  return (
+    <div className="flex flex-wrap items-start gap-4">
+      {asset ? (
+        <div className="relative grid size-20 place-items-center overflow-hidden rounded-xl border border-border bg-surface-2">
+          {kind === "logo" && asset.url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={asset.url} alt="" className="max-h-full max-w-full object-contain p-2" />
+          ) : (
+            <Music className="size-6 text-primary" />
+          )}
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-black/60 text-white cursor-pointer"
+            aria-label={`Remove ${kind}`}
+          >
+            <X className="size-3" />
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => ref.current?.click()}
+          className="grid size-20 place-items-center rounded-xl border-2 border-dashed border-border text-muted hover:border-primary/60 hover:text-primary cursor-pointer"
+          aria-label={`Upload ${kind}`}
+        >
+          {busy ? <Loader2 className="size-5 animate-spin" /> : <Upload className="size-5" />}
+        </button>
+      )}
+      <div className="min-w-0 flex-1 space-y-2 text-xs text-muted">
+        {asset ? <div className="truncate text-sm text-text">{asset.name}</div> : <div>{kind === "logo" ? "PNG, JPG or WEBP · transparent PNG looks best" : "MP3, M4A, WAV or OGG · use music you have the rights to"}</div>}
+        {asset && children}
+      </div>
+      <input
+        ref={ref}
+        type="file"
+        className="hidden"
+        accept={kind === "logo" ? "image/png,image/jpeg,image/webp" : "audio/*"}
+        onChange={(e) => pick(e.target.files?.[0])}
+      />
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------- live 9:16 preview
+
+function LivePreview({
+  s,
+  style,
+  ytid,
+  fileUrl,
+  thumb,
+  logo,
+  title,
+}: {
+  s: GenerateSettings;
+  style: CaptionStyle | null;
+  ytid: string | null;
+  fileUrl: string | null;
+  thumb: string | null;
+  logo: Asset | null;
+  title: string;
+}) {
+  const W = s.aspect === "16:9" ? 440 : s.aspect === "1:1" ? 340 : s.aspect === "4:5" ? 300 : 280;
+  const H = Math.round(W * ({ "9:16": 16 / 9, "1:1": 1, "4:5": 5 / 4, "16:9": 9 / 16 } as const)[s.aspect]);
+  const words = useMemo(() => SAMPLE.map((w, i) => ({ w, s: 0.6 + i * 0.36, e: 0.6 + i * 0.36 + 0.32 })), []);
+  const chunks = useMemo(() => chunkWords(words, style?.max_words ?? 3), [words, style?.max_words]);
+  const total = words[words.length - 1].e + 1.2;
+  const [t, setT] = useState(0);
+  useEffect(() => {
+    let raf = 0;
+    const t0 = performance.now();
+    const tick = () => {
+      setT(((performance.now() - t0) / 1000) % total);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [total]);
+  const kwTime = words.find((w) => w.w === "captions")?.s ?? 2;
+  let zoom = 1;
+  if (s.zoom_start) zoom += 0.18 * Math.max(0, 1 - t / 1.1) ** 2;
+  if (s.zoom_key_phrases) zoom += 0.12 * Math.min(1, Math.max(0, (t - kwTime + 0.08) / 0.14)) * Math.min(1, Math.max(0, (kwTime + 1.1 - t) / 0.3));
+  // YouTube draws its title bar and controls over the top and bottom ~12% of the player:
+  // make the player taller than the frame so those strips fall outside it.
+  const ih = Math.max(H / 0.76, (W * 9) / 16 / 0.76);
+  const iw = (ih * 16) / 9;
+  return (
+    <div className="relative mx-auto overflow-hidden rounded-2xl bg-black shadow-card" style={{ width: W, height: H }}>
+      <div className="absolute inset-0" style={{ transform: `scale(${zoom})` }}>
+        {fileUrl ? (
+          <video src={fileUrl} className="h-full w-full object-cover" autoPlay muted loop playsInline />
+        ) : ytid ? (
+          <iframe
+            title="Video preview"
+            src={`https://www.youtube-nocookie.com/embed/${ytid}?autoplay=1&mute=1&controls=0&loop=1&playlist=${ytid}&playsinline=1&rel=0&modestbranding=1&cc_load_policy=0&iv_load_policy=3&fs=0&disablekb=1`}
+            allow="autoplay; encrypted-media"
+            tabIndex={-1}
+            className="pointer-events-none absolute border-0"
+            style={{ width: iw, height: ih, left: (W - iw) / 2, top: (H - ih) / 2 }}
+          />
+        ) : thumb ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={thumb} alt="" className="h-full w-full object-cover" />
+        ) : (
+          <div className="h-full w-full bg-gradient-to-b from-zinc-700 to-zinc-900" />
+        )}
+      </div>
+      {logo?.url && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={logo.url}
+          alt=""
+          className="absolute object-contain"
+          style={{
+            width: W * 0.16,
+            top: s.logo_position.startsWith("top") ? W * 0.034 : undefined,
+            bottom: s.logo_position.startsWith("bottom") ? W * 0.034 : undefined,
+            left: s.logo_position.endsWith("left") ? W * 0.034 : undefined,
+            right: s.logo_position.endsWith("right") ? W * 0.034 : undefined,
+          }}
+        />
+      )}
+      {style && (
+        <CaptionOverlay
+          chunks={chunks}
+          style={{ ...style, emphasis: s.keyword_emphasis }}
+          keywords={["captions", "every"]}
+          t={t}
+          width={W}
+          enabled={s.captions}
+          transition={s.caption_transition}
+          effect={s.caption_effect}
+          overlays={s.hook_title ? [{ kind: "title", text: title || "Your hook title appears here", start: 0, end: 3 }] : []}
+          progressBar={s.progress_bar ? "#7C3AED" : null}
+          duration={total}
+        />
+      )}
+    </div>
+  );
+}
+
+// ----------------------------------------------------------------------------- main
 
 export function NewProject() {
   const router = useRouter();
   const params = useSearchParams();
   const toast = useToast();
   const { meta, user } = useSession();
-  const [mode, setMode] = useState<"upload" | "url">(params.get("url") ? "url" : "upload");
+  const [step, setStep] = useState<"import" | "customize">("import");
+  const [mode, setMode] = useState<"url" | "upload">(params.get("mode") === "upload" ? "upload" : "url");
   const [url, setUrl] = useState(params.get("url") ?? "");
   const [urlInfo, setUrlInfo] = useState<UrlInfo | null>(null);
   const [urlError, setUrlError] = useState("");
   const [checking, setChecking] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [fileUrl, setFileUrl] = useState<string | null>(null);
   const [local, setLocal] = useState<LocalMeta | null>(null);
   const [fileError, setFileError] = useState("");
   const [drag, setDrag] = useState(false);
-  const [name, setName] = useState("");
   const [s, setS] = useState<GenerateSettings>(() => ({
     ...DEFAULT_SETTINGS,
     caption_preset: user.brand_kit?.caption_preset || DEFAULT_SETTINGS.caption_preset,
   }));
-  const [lengthKey, setLengthKey] = useState<string>("standard");
-  const [advanced, setAdvanced] = useState(false);
+  const [logo, setLogo] = useState<Asset | null>(null);
+  const [music, setMusic] = useState<Asset | null>(null);
+  const [more, setMore] = useState(false);
   const [phase, setPhase] = useState<"idle" | "uploading" | "creating">("idle");
   const [sent, setSent] = useState(0);
   const abort = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const set = <K extends keyof GenerateSettings>(k: K, v: GenerateSettings[K]) => setS((p) => ({ ...p, [k]: v }));
+  const presets = meta?.caption_presets ?? {};
+  const style = presets[s.caption_preset] ?? null;
+  const ytid = mode === "url" ? youtubeId(urlInfo?.url ?? url) : null;
+  const thumb = mode === "url" ? urlInfo?.thumbnail ?? null : local?.thumb ?? null;
+  const title = mode === "url" ? urlInfo?.title ?? "" : file?.name.replace(/\.[^.]+$/, "") ?? "";
 
-  // Validate links as the user types (debounced).
+  // Check links as they are pasted (debounced).
   useEffect(() => {
     if (mode !== "url" || !url.trim()) {
       setUrlInfo(null);
@@ -67,45 +334,35 @@ export function NewProject() {
       setChecking(true);
       setUrlError("");
       try {
-        const info = await api.checkUrl(url.trim());
-        setUrlInfo(info);
-        if (info.title && !name) setName(info.title);
+        setUrlInfo(await api.checkUrl(url.trim()));
       } catch (e) {
         setUrlInfo(null);
         setUrlError((e as Error).message);
       } finally {
         setChecking(false);
       }
-    }, 600);
+    }, 500);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url, mode]);
+
+  useEffect(() => () => void (fileUrl && URL.revokeObjectURL(fileUrl)), [fileUrl]);
 
   const pickFile = (f: File | undefined | null) => {
     setFileError("");
     setLocal(null);
     if (!f) return;
-    const okExt = /\.(mp4|mov|mkv|webm|m4v|avi)$/i.test(f.name);
-    if (!okExt) {
-      setFileError("Supported formats: MP4, MOV, MKV, WEBM, M4V, AVI.");
-      return;
-    }
+    if (!/\.(mp4|mov|mkv|webm|m4v|avi)$/i.test(f.name)) return setFileError("Supported formats: MP4, MOV, MKV, WEBM, M4V, AVI.");
     const limit = (meta?.limits.max_upload_mb ?? 4096) * 1024 * 1024;
-    if (f.size > limit) {
-      setFileError(`This file is ${fmtBytes(f.size)}; the limit is ${fmtBytes(limit)}.`);
-      return;
-    }
+    if (f.size > limit) return setFileError(`This file is ${fmtBytes(f.size)}; the limit is ${fmtBytes(limit)}.`);
     setFile(f);
-    setName((n) => n || f.name.replace(/\.[^.]+$/, ""));
-    // Local preview metadata + thumbnail (the server re-validates with ffprobe).
-    const v = document.createElement("video");
     const src = URL.createObjectURL(f);
+    setFileUrl(src);
+    const v = document.createElement("video");
     v.preload = "metadata";
     v.muted = true;
     v.src = src;
     v.onloadedmetadata = () => {
-      const m: LocalMeta = { duration: v.duration, width: v.videoWidth, height: v.videoHeight, thumb: null };
-      setLocal(m);
+      setLocal({ duration: v.duration, width: v.videoWidth, height: v.videoHeight, thumb: null });
       v.currentTime = Math.min(5, v.duration / 3);
     };
     v.onseeked = () => {
@@ -117,13 +374,8 @@ export function NewProject() {
         const thumb = c.toDataURL("image/jpeg", 0.75);
         setLocal((m) => (m ? { ...m, thumb } : m));
       } catch {}
-      URL.revokeObjectURL(src);
     };
-    v.onerror = () => {
-      // Browser can't decode (e.g. some MKV/HEVC) — the server will still try.
-      setLocal({ duration: NaN, width: 0, height: 0, thumb: null });
-      URL.revokeObjectURL(src);
-    };
+    v.onerror = () => setLocal({ duration: NaN, width: 0, height: 0, thumb: null });
   };
 
   const ready = mode === "upload" ? !!file && !fileError : !!urlInfo?.importable;
@@ -136,17 +388,15 @@ export function NewProject() {
       if (mode === "upload" && file) {
         setPhase("uploading");
         abort.current = new AbortController();
-        const up = await uploadFile(file, (n) => setSent(n), abort.current.signal);
-        upload_id = up.id;
+        upload_id = (await uploadFile(file, (n) => setSent(n), abort.current.signal)).id;
       }
       setPhase("creating");
       const p = await api.createProject({
-        name: name.trim() || undefined,
+        name: title || undefined,
         upload_id,
         url: mode === "url" ? urlInfo!.url : undefined,
-        settings: s,
+        settings: { ...s, logo_key: logo?.key ?? null, music_key: music?.key ?? null },
       });
-      toast("success", "AI Generate started — your clips are being made.");
       router.push(`/app/projects/${p.id}`);
     } catch (e) {
       toast("error", (e as Error).message);
@@ -154,381 +404,386 @@ export function NewProject() {
     }
   };
 
-  const presets = meta?.caption_presets ?? {};
+  // --------------------------------------------------------------------------- step 1: import
+  if (step === "import") {
+    return (
+      <div className="mx-auto max-w-lg pt-10 sm:pt-20">
+        <div className="mb-2 flex items-center justify-between">
+          <label htmlFor="video-link" className="text-sm font-medium">
+            {mode === "url" ? "Import from YouTube:" : "Upload a video:"}
+          </label>
+          <button
+            type="button"
+            onClick={() => setMode(mode === "url" ? "upload" : "url")}
+            className="text-xs font-medium text-primary hover:underline cursor-pointer"
+          >
+            {mode === "url" ? "or upload a file" : "or paste a link"}
+          </button>
+        </div>
 
-  return (
-    <div className="grid gap-6 xl:grid-cols-[1fr_400px]">
-      {/* Source */}
-      <div className="space-y-6">
-        <Card className="p-5 sm:p-6">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="font-display text-lg font-semibold">1. Add your video</h2>
-            <Segmented
-              value={mode}
-              onChange={(m) => !busy && setMode(m)}
-              options={[
-                { value: "upload", label: <><Upload className="size-4" /> Upload</> },
-                { value: "url", label: <><Link2 className="size-4" /> Paste link</> },
-              ]}
-            />
-          </div>
-
-          {mode === "upload" ? (
-            <div className="mt-5">
-              {!file ? (
-                <button
-                  type="button"
-                  onClick={() => inputRef.current?.click()}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setDrag(true);
-                  }}
-                  onDragLeave={() => setDrag(false)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setDrag(false);
-                    pickFile(e.dataTransfer.files?.[0]);
-                  }}
-                  className={cx(
-                    "flex w-full flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-14 text-center transition cursor-pointer",
-                    drag ? "border-primary bg-primary-soft" : "border-border hover:border-primary/60 hover:bg-surface-2",
-                  )}
-                >
-                  <div className="grid size-12 place-items-center rounded-2xl bg-primary-soft text-primary">
-                    <Upload className="size-6" />
-                  </div>
-                  <div className="mt-4 font-medium">Drop a video here or click to browse</div>
-                  <div className="mt-1 text-sm text-muted">
-                    MP4, MOV, MKV, WEBM · up to {fmtBytes((meta?.limits.max_upload_mb ?? 4096) * 1024 * 1024)} ·{" "}
-                    {meta?.limits.max_duration_minutes ?? 180} min
-                  </div>
-                </button>
-              ) : (
-                <div className="flex gap-4 rounded-2xl border border-border p-3">
-                  <div className="relative aspect-video w-40 shrink-0 overflow-hidden rounded-xl bg-surface-2">
-                    {local?.thumb ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={local.thumb} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <FileVideo className="absolute inset-0 m-auto size-8 text-muted" />
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{file.name}</div>
-                    <div className="mt-1 flex flex-wrap gap-x-3 text-sm text-muted">
-                      <span>{fmtBytes(file.size)}</span>
-                      {local && isFinite(local.duration) && <span>{fmtTime(local.duration)}</span>}
-                      {local && local.width > 0 && <span>{local.width}×{local.height}</span>}
-                      {local && !isFinite(local.duration) && <span>Preview unavailable in this browser</span>}
-                    </div>
-                    {phase === "uploading" && (
-                      <div className="mt-3">
-                        <Progress value={sent / file.size} />
-                        <div className="mt-1 text-xs text-muted">
-                          Uploading {fmtBytes(sent)} of {fmtBytes(file.size)}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  {!busy && (
-                    <button
-                      onClick={() => {
-                        setFile(null);
-                        setLocal(null);
-                      }}
-                      className="self-start p-1 text-muted hover:text-text cursor-pointer"
-                      aria-label="Remove file"
-                    >
-                      <X className="size-4" />
-                    </button>
-                  )}
-                </div>
-              )}
-              <input
-                ref={inputRef}
-                type="file"
-                accept="video/*,.mkv"
-                className="hidden"
-                onChange={(e) => pickFile(e.target.files?.[0])}
+        {mode === "url" ? (
+          <>
+            <div className="relative">
+              <svg viewBox="0 0 24 24" className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2" aria-hidden>
+                <rect x="1.5" y="4.5" width="21" height="15" rx="4.5" fill="#FF0033" />
+                <path d="M10 8.8v6.4l5.6-3.2z" fill="#fff" />
+              </svg>
+              <Input
+                id="video-link"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="Or paste a YouTube, TikTok, Vimeo or .mp4 link"
+                className="h-11 pl-10"
+                autoFocus
               />
-              {fileError && <p className="mt-3 text-sm text-danger">{fileError}</p>}
             </div>
-          ) : (
-            <div className="mt-5 space-y-3">
-              <div className="relative">
-                <Link2 className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted" />
-                <Input
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://www.youtube.com/watch?v=…  ·  youtu.be  ·  Shorts  ·  TikTok  ·  .mp4"
-                  className="h-12 pl-10"
-                  aria-label="Video link"
-                  disabled={busy}
-                />
-                {checking && <Loader2 className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted" />}
-              </div>
-              {urlError && (
-                <div className="flex gap-2 rounded-xl bg-danger/10 px-3 py-2.5 text-sm text-danger">
-                  <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-                  {urlError}
-                </div>
-              )}
-              {urlInfo && (
-                <div
-                  className={cx(
-                    "flex gap-4 rounded-2xl border p-3",
-                    urlInfo.importable ? "border-success/40" : "border-warning/40",
-                  )}
-                >
-                  {urlInfo.thumbnail && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={urlInfo.thumbnail} alt="" className="aspect-video w-36 shrink-0 rounded-xl object-cover" />
-                  )}
-                  <div className="min-w-0 text-sm">
-                    <div className="flex items-center gap-2">
-                      {urlInfo.importable ? (
-                        <CheckCircle2 className="size-4 text-success" />
-                      ) : (
-                        <AlertTriangle className="size-4 text-warning" />
-                      )}
-                      <span className="truncate font-medium">{urlInfo.title || urlInfo.url}</span>
-                    </div>
-                    {urlInfo.author && <div className="mt-0.5 text-muted">by {urlInfo.author}</div>}
-                    <div className="mt-0.5 flex flex-wrap gap-x-3 text-muted">
-                      {urlInfo.platform && urlInfo.kind !== "direct" && <span>{urlInfo.platform}</span>}
-                      {urlInfo.duration ? <span>{fmtTime(urlInfo.duration)}</span> : null}
-                      {urlInfo.size_bytes ? <span>≈ {fmtBytes(urlInfo.size_bytes)}</span> : null}
-                    </div>
-                    <p className="mt-2 text-muted">{urlInfo.message}</p>
-                    {urlInfo.warnings.map((w) => (
-                      <p key={w} className="mt-1 text-warning">{w}</p>
-                    ))}
-                    {!urlInfo.importable && (
-                      <Button variant="secondary" size="sm" className="mt-3" onClick={() => setMode("upload")}>
-                        <Upload className="size-4" /> Upload the file instead
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              )}
-              {!urlInfo && !urlError && (
-                <p className="text-sm text-muted">
-                  Paste a YouTube link (videos, Shorts, youtu.be), or one from TikTok, Instagram, X, Reddit, Vimeo,
-                  Twitch, Facebook and 1,800+ other sites, or a direct .mp4 link. HypeSift downloads it in up to
-                  1080p, then the AI finds the moments and edits the clips. Only use videos you own or have
-                  permission to use.
-                </p>
-              )}
-            </div>
-          )}
-          <div className="mt-5">
-            <Field label="Project name">
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="My episode" disabled={busy} />
-            </Field>
-          </div>
-        </Card>
-
-        {/* Preferences */}
-        <Card className="p-5 sm:p-6">
-          <h2 className="font-display text-lg font-semibold">2. Choose clip preferences</h2>
-          <div className="mt-5 grid gap-5 sm:grid-cols-2">
-            <Field label={`Number of clips · ${s.count}`}>
-              <input
-                type="range"
-                min={1}
-                max={meta?.limits.max_clips ?? 20}
-                value={s.count}
-                onChange={(e) => set("count", Number(e.target.value))}
-                className="w-full"
-                aria-label="Number of clips"
-              />
-            </Field>
-            <Field label="Clip length">
-              <Segmented
-                value={lengthKey}
-                onChange={(k) => {
-                  setLengthKey(k);
-                  const p = LENGTHS.find((l) => l.key === k)!;
-                  if (p.min) setS((x) => ({ ...x, min_dur: p.min, max_dur: p.max }));
-                }}
-                options={LENGTHS.map((l) => ({ value: l.key, label: l.label }))}
-                className="flex-wrap"
-              />
-            </Field>
-            {lengthKey === "custom" && (
-              <div className="grid grid-cols-2 gap-3 sm:col-span-2">
-                <Field label="Min seconds">
-                  <Input type="number" min={5} max={170} value={s.min_dur} onChange={(e) => set("min_dur", Number(e.target.value))} />
-                </Field>
-                <Field label="Max seconds">
-                  <Input type="number" min={8} max={180} value={s.max_dur} onChange={(e) => set("max_dur", Number(e.target.value))} />
-                </Field>
+            {checking && (
+              <div className="mt-2 flex items-center gap-2 text-xs text-muted">
+                <Loader2 className="size-3.5 animate-spin" /> Fetching video info…
               </div>
             )}
-            <Field label="Content type">
+            {urlError && <p className="mt-2 rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">{urlError}</p>}
+            {urlInfo && (
+              <div className={cx("mt-2 flex gap-3 rounded-xl border p-2", urlInfo.importable ? "border-border" : "border-warning/50")}>
+                {urlInfo.thumbnail ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={urlInfo.thumbnail} alt="" className="aspect-video w-28 shrink-0 rounded-lg object-cover" />
+                ) : (
+                  <div className="grid aspect-video w-28 shrink-0 place-items-center rounded-lg bg-surface-2">
+                    <FileVideo className="size-5 text-muted" />
+                  </div>
+                )}
+                <div className="min-w-0 py-0.5">
+                  <div className="truncate text-sm font-medium">{urlInfo.title || urlInfo.url}</div>
+                  <div className="mt-0.5 text-xs text-muted">
+                    {[urlInfo.author, urlInfo.duration ? fmtTime(urlInfo.duration) : null, urlInfo.platform].filter(Boolean).join(" · ")}
+                  </div>
+                  {!urlInfo.importable && <div className="mt-1 text-xs text-warning">{urlInfo.message}</div>}
+                </div>
+              </div>
+            )}
+          </>
+        ) : !file ? (
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDrag(true);
+            }}
+            onDragLeave={() => setDrag(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDrag(false);
+              pickFile(e.dataTransfer.files?.[0]);
+            }}
+            className={cx(
+              "flex w-full flex-col items-center rounded-2xl border-2 border-dashed px-6 py-10 text-center transition cursor-pointer",
+              drag ? "border-primary bg-primary-soft" : "border-border hover:border-primary/60",
+            )}
+          >
+            <Upload className="size-6 text-primary" />
+            <div className="mt-3 text-sm font-medium">Drop a video here or click to browse</div>
+            <div className="mt-1 text-xs text-muted">
+              MP4, MOV, MKV, WEBM · up to {fmtBytes((meta?.limits.max_upload_mb ?? 4096) * 1024 * 1024)}
+            </div>
+          </button>
+        ) : (
+          <div className="flex gap-3 rounded-xl border border-border p-2">
+            <div className="grid aspect-video w-28 shrink-0 place-items-center overflow-hidden rounded-lg bg-surface-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {local?.thumb ? <img src={local.thumb} alt="" className="h-full w-full object-cover" /> : <FileVideo className="size-5 text-muted" />}
+            </div>
+            <div className="min-w-0 flex-1 py-0.5">
+              <div className="truncate text-sm font-medium">{file.name}</div>
+              <div className="mt-0.5 text-xs text-muted">
+                {fmtBytes(file.size)}
+                {local && isFinite(local.duration) ? ` · ${fmtTime(local.duration)}` : ""}
+              </div>
+            </div>
+            <button type="button" onClick={() => setFile(null)} className="self-start p-1 text-muted hover:text-text cursor-pointer" aria-label="Remove file">
+              <X className="size-4" />
+            </button>
+          </div>
+        )}
+        <input ref={inputRef} type="file" accept="video/*,.mkv" className="hidden" onChange={(e) => pickFile(e.target.files?.[0])} />
+        {fileError && <p className="mt-2 text-sm text-danger">{fileError}</p>}
+
+        <div className="mt-6">
+          <label htmlFor="instructions" className="flex items-center gap-1.5 text-sm font-medium">
+            <Lightbulb className="size-4 text-warning" /> Add custom instructions <span className="font-normal text-muted">(optional)</span>
+          </label>
+          <p className="mt-0.5 text-xs text-muted">Describe what you&apos;re looking for in your own words — the AI focuses the clip selection on it.</p>
+          <Input
+            id="instructions"
+            value={s.instructions}
+            onChange={(e) => set("instructions", e.target.value.slice(0, 600))}
+            placeholder="E.g. Find all the moments where they share tangible advice and funny stories…"
+            className="mt-2"
+          />
+        </div>
+        <div className="mt-5 flex justify-end">
+          <Button onClick={() => setStep("customize")} disabled={!ready}>
+            <Sparkles className="size-4" /> Generate clips
+          </Button>
+        </div>
+        <p className="mt-10 text-center text-[11px] text-muted">Only import videos you own or have permission to use.</p>
+      </div>
+    );
+  }
+
+  // --------------------------------------------------------------------------- step 2: customize
+  const go = (
+    <Button onClick={generate} loading={busy} disabled={!ready}>
+      {phase === "uploading" ? `Uploading… ${file ? Math.round((sent / file.size) * 100) : 0}%` : phase === "creating" ? "Starting…" : "Continue, generate my clips"}
+      {!busy && <ArrowRight className="size-4" />}
+    </Button>
+  );
+  const effects = meta?.caption_effects ?? ({ none: "None" } as Record<Effect, string>);
+  const transitions = meta?.caption_transitions ?? ({ none: "None" } as Record<Transition, string>);
+
+  return (
+    <div>
+      <div className="mb-4 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => !busy && setStep("import")}
+          className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-text cursor-pointer"
+        >
+          <ArrowLeft className="size-4" /> Back
+        </button>
+        {go}
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="divide-y divide-border rounded-2xl border border-border bg-surface px-5">
+          <div className="pt-5">
+            <h2 className="text-lg font-semibold">Customize your video</h2>
+            {title && <p className="mt-0.5 truncate text-sm text-muted">{title}</p>}
+          </div>
+
+          <div className="grid gap-x-6 sm:grid-cols-2">
+            <Section title="Language spoken" info="Auto-detect works for most videos; pick it to skip detection.">
+              <Select value={s.language} onChange={(v) => set("language", v)} options={LANGS.map(([value, label]) => ({ value, label }))} />
+            </Section>
+            <Section title="Size" info="Portrait 9:16 is the format for YouTube Shorts, Reels and TikTok.">
+              <Select value={s.aspect} onChange={(v) => set("aspect", v as GenerateSettings["aspect"])} options={SIZES} />
+            </Section>
+            <Section title="Clip duration" info="The longest a clip may be. Clips end on a complete sentence, so most land a little shorter.">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 items-center gap-1.5 rounded-xl border border-border px-3 text-sm">
+                  <span className="w-7 text-right font-medium">{s.max_dur}</span>
+                  <span className="text-muted">seconds</span>
+                </div>
+                <input
+                  type="range"
+                  min={15}
+                  max={180}
+                  step={5}
+                  value={s.max_dur}
+                  aria-label="Clip duration"
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setS((x) => ({ ...x, max_dur: v, min_dur: Math.max(8, Math.round(v * 0.45)) }));
+                  }}
+                  className="flex-1"
+                />
+              </div>
+            </Section>
+            <Section title="Number of clips">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 items-center rounded-xl border border-border px-3 text-sm font-medium">{s.count}</div>
+                <input
+                  type="range"
+                  min={1}
+                  max={meta?.limits.max_clips ?? 20}
+                  value={s.count}
+                  aria-label="Number of clips"
+                  onChange={(e) => set("count", Number(e.target.value))}
+                  className="flex-1"
+                />
+              </div>
+            </Section>
+            <Section title="Template" info="Tells the AI what kind of video this is, so it weighs the right signals.">
               <Select
                 value={s.genre}
                 onChange={(v) => set("genre", v)}
-                options={Object.entries(meta?.genres ?? { auto: "Auto-detect" }).map(([value, label]) => ({ value, label }))}
+                options={Object.entries(meta?.genres ?? { auto: "Auto-detect" }).map(([value, label]) => ({ value, label: value === "auto" ? "Default style (auto-detect)" : label }))}
               />
-            </Field>
-            <Field label="Mood">
-              <Select
-                value={s.mood}
-                onChange={(v) => set("mood", v)}
-                options={(meta?.moods ?? ["any"]).map((m) => ({ value: m, label: m === "any" ? "Best overall" : m[0].toUpperCase() + m.slice(1) }))}
-              />
-            </Field>
-            <Field label="Format">
-              <Segmented
-                value={s.aspect}
-                onChange={(v) => set("aspect", v)}
-                options={(["9:16", "1:1", "4:5", "16:9"] as const).map((a) => ({ value: a, label: a }))}
-              />
-            </Field>
-            <Field label="Framing">
+            </Section>
+            <Section title="Framing">
               <Select
                 value={s.crop_mode}
                 onChange={(v) => set("crop_mode", v as GenerateSettings["crop_mode"])}
                 options={[
-                  { value: "auto", label: "Smart (follow faces & action)" },
+                  { value: "auto", label: "Smart: follow faces and action" },
                   { value: "center", label: "Center crop" },
                   { value: "fit", label: "Fit whole frame (blurred fill)" },
                 ]}
               />
-            </Field>
+            </Section>
           </div>
 
-          <div className="mt-6">
-            <div className="flex items-center justify-between">
-              <div className="text-xs font-medium uppercase tracking-wide text-muted">Caption style</div>
-              <Switch checked={s.captions} onChange={(v) => set("captions", v)} label="" />
+          <Section title="Caption settings" info="Captions are burned into the video; most Shorts are watched without sound.">
+            <div className="text-xs text-muted">Caption transition</div>
+            <div className="mt-1.5">
+              <Chips value={s.caption_transition} onChange={(v) => set("caption_transition", v)} options={Object.entries(transitions) as [Transition, string][]} />
             </div>
-            <div className={cx("mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3", !s.captions && "opacity-40 pointer-events-none")}>
+            <div className="mt-4 text-xs text-muted">Caption style</div>
+            <div className="mt-1.5 grid grid-cols-3 gap-2.5 rounded-xl bg-surface-2 p-2.5 sm:grid-cols-4 xl:grid-cols-6">
+              <Tile selected={!s.captions} onClick={() => set("captions", false)} label="None" bg={null}>
+                <Ban className="size-5 text-white/70" />
+              </Tile>
               {Object.entries(presets).map(([key, st]) => (
-                <button
+                <Tile
                   key={key}
-                  type="button"
-                  onClick={() => set("caption_preset", key)}
-                  className={cx(
-                    "overflow-hidden rounded-xl border text-left transition cursor-pointer",
-                    s.caption_preset === key ? "border-primary ring-2 ring-primary/30" : "border-border hover:border-primary/50",
-                  )}
-                  aria-pressed={s.caption_preset === key}
+                  selected={s.captions && s.caption_preset === key}
+                  onClick={() => setS((x) => ({ ...x, captions: true, caption_preset: key }))}
+                  label={st.label}
+                  bg={thumb}
                 >
-                  <div className="grid h-16 place-items-center bg-[#1c1a26] px-2">
-                    <CaptionSample style={st} />
-                  </div>
-                  <div className="px-2.5 py-1.5 text-xs font-medium">{st.label}</div>
-                </button>
+                  <CaptionSample style={st} scale={0.2} />
+                </Tile>
               ))}
             </div>
-          </div>
-
-          <div className="mt-6">
-            <div className="text-xs font-medium uppercase tracking-wide text-muted">Publishing copy for</div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {Object.entries(PLATFORM_LABELS).map(([p, label]) => {
-                const on = s.platforms.includes(p);
-                return (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => set("platforms", on ? s.platforms.filter((x) => x !== p) : [...s.platforms, p])}
-                    className={cx(
-                      "rounded-full border px-3 h-8 text-sm transition cursor-pointer",
-                      on ? "border-primary bg-primary-soft text-primary" : "border-border text-muted hover:text-text",
-                    )}
-                    aria-pressed={on}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
+            <div className="mt-4 text-xs text-muted">Caption effects</div>
+            <div className="mt-1.5 grid grid-cols-3 gap-2.5 rounded-xl bg-surface-2 p-2.5 sm:grid-cols-5">
+              {(Object.entries(effects) as [Effect, string][]).map(([key, label]) => (
+                <Tile key={key} selected={s.caption_effect === key} onClick={() => set("caption_effect", key)} label={label} bg={thumb}>
+                  {key === "none" ? <Ban className="size-5 text-white/70" /> : style ? <CaptionSample style={style} scale={0.2} effect={key} /> : null}
+                </Tile>
+              ))}
             </div>
-          </div>
+          </Section>
 
-          <button
-            type="button"
-            onClick={() => setAdvanced((a) => !a)}
-            className="mt-6 inline-flex items-center gap-2 text-sm font-medium text-muted hover:text-text cursor-pointer"
-            aria-expanded={advanced}
-          >
-            <Settings2 className="size-4" /> {advanced ? "Hide" : "Show"} advanced options
-          </button>
-          {advanced && (
-            <div className="mt-4 grid gap-x-8 gap-y-2 sm:grid-cols-2">
-              <Field label="Copy tone">
-                <Select value={s.tone} onChange={(v) => set("tone", v)} options={(meta?.tones ?? ["compelling"]).map((t) => ({ value: t, label: t === "compelling" ? "Compelling but truthful" : t[0].toUpperCase() + t.slice(1) }))} />
-              </Field>
-              <Field label="Spoken language">
-                <Select
-                  value={s.language}
-                  onChange={(v) => set("language", v)}
-                  options={[
-                    ["auto", "Auto-detect"], ["en", "English"], ["hi", "Hindi"], ["es", "Spanish"], ["fr", "French"],
-                    ["de", "German"], ["pt", "Portuguese"], ["ja", "Japanese"], ["ko", "Korean"], ["ar", "Arabic"],
-                  ].map(([value, label]) => ({ value, label }))}
+          <Section title="Auto-highlight keywords" info="Colours the important words in each caption.">
+            <Switch checked={s.keyword_emphasis} onChange={(v) => set("keyword_emphasis", v)} label="Enabled" />
+          </Section>
+
+          <Section title="Automatically zoom in" info="Quick punch-in zooms keep viewers' eyes on the screen.">
+            <Switch checked={s.zoom_start} onChange={(v) => set("zoom_start", v)} label="At start" hint="A zoom-out reveal in the first second" />
+            <Switch checked={s.zoom_key_phrases} onChange={(v) => set("zoom_key_phrases", v)} label="At key phrases" hint="Punch in when an important word is said" />
+          </Section>
+
+          <Section title="Viral boosters" info="Common practices that help Shorts hold viewers to the end.">
+            <Switch checked={s.hook_title} onChange={(v) => set("hook_title", v)} label="Hook title for the first 3 seconds" hint="The clip's hook as on-screen text, so viewers know why to stay" />
+            <Switch checked={s.progress_bar} onChange={(v) => set("progress_bar", v)} label="Progress bar" hint="A thin bar along the bottom that fills as the clip plays" />
+            <Switch checked={s.silence_removal} onChange={(v) => set("silence_removal", v)} label="Remove silent pauses" hint="Tighter pacing: cuts gaps longer than 0.7 s" />
+          </Section>
+
+          <Section title="Logo" info="Shown in a corner of every clip.">
+            <AssetBox kind="logo" asset={logo} onChange={setLogo}>
+              <Select
+                value={s.logo_position}
+                onChange={(v) => set("logo_position", v as GenerateSettings["logo_position"])}
+                options={[
+                  { value: "top_right", label: "Top right" },
+                  { value: "top_left", label: "Top left" },
+                  { value: "bottom_right", label: "Bottom right" },
+                  { value: "bottom_left", label: "Bottom left" },
+                ]}
+                className="h-8 max-w-48"
+              />
+            </AssetBox>
+          </Section>
+
+          <Section title="Music" info="Plays quietly under every clip and ducks automatically while people talk.">
+            <AssetBox kind="music" asset={music} onChange={setMusic}>
+              <label className="flex max-w-64 items-center gap-2">
+                Volume
+                <input
+                  type="range"
+                  min={0.04}
+                  max={0.5}
+                  step={0.02}
+                  value={s.music_volume}
+                  onChange={(e) => set("music_volume", Number(e.target.value))}
+                  className="flex-1"
                 />
-              </Field>
-              <Field label="Look for moments">
-                <Select value={s.position} onChange={(v) => set("position", v)} options={[["any", "Anywhere"], ["start", "Near the start"], ["middle", "In the middle"], ["end", "Near the end"]].map(([value, label]) => ({ value, label }))} />
-              </Field>
-              <Field label="Export quality">
-                <Select value={s.quality} onChange={(v) => set("quality", v as GenerateSettings["quality"])} options={[["draft", "Draft (720p, fastest)"], ["standard", "Standard (1080p)"], ["high", "High (1080p, best)"]].map(([value, label]) => ({ value, label }))} />
-              </Field>
-              <div className="sm:col-span-2 mt-2 grid gap-x-8 sm:grid-cols-2">
-                <Switch checked={s.silence_removal} onChange={(v) => set("silence_removal", v)} label="Remove silent pauses" hint="Cuts gaps longer than 0.7s" />
-                <Switch checked={s.context_padding} onChange={(v) => set("context_padding", v)} label="Context padding" hint="Small lead-in and tail around each clip" />
-                <Switch checked={s.hook_title} onChange={(v) => set("hook_title", v)} label="Hook title overlay" hint="Clip title on screen for the first 3s" />
-                <Switch checked={s.keyword_emphasis} onChange={(v) => set("keyword_emphasis", v)} label="Highlight key words" />
+              </label>
+              {music?.url && <audio src={music.url} controls className="h-8 w-full max-w-64" />}
+            </AssetBox>
+          </Section>
+
+          <div className="py-4">
+            <button
+              type="button"
+              onClick={() => setMore((m) => !m)}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-muted hover:text-text cursor-pointer"
+              aria-expanded={more}
+            >
+              <ChevronDown className={cx("size-4 transition", more && "rotate-180")} /> More AI options
+            </button>
+            {more && (
+              <div className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                <label className="block text-sm">
+                  <span className="text-xs text-muted">Mood</span>
+                  <Select
+                    value={s.mood}
+                    onChange={(v) => set("mood", v)}
+                    options={(meta?.moods ?? ["any"]).map((m) => ({ value: m, label: m === "any" ? "Best overall" : m[0].toUpperCase() + m.slice(1) }))}
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="text-xs text-muted">Look for moments</span>
+                  <Select value={s.position} onChange={(v) => set("position", v)} options={[["any", "Anywhere"], ["start", "Near the start"], ["middle", "In the middle"], ["end", "Near the end"]].map(([value, label]) => ({ value, label }))} />
+                </label>
+                <label className="block text-sm">
+                  <span className="text-xs text-muted">Copy tone</span>
+                  <Select value={s.tone} onChange={(v) => set("tone", v)} options={(meta?.tones ?? ["compelling"]).map((t) => ({ value: t, label: t === "compelling" ? "Compelling but truthful" : t[0].toUpperCase() + t.slice(1) }))} />
+                </label>
+                <label className="block text-sm">
+                  <span className="text-xs text-muted">Export quality</span>
+                  <Select value={s.quality} onChange={(v) => set("quality", v as GenerateSettings["quality"])} options={[["draft", "Draft (720p, fastest)"], ["standard", "Standard (1080p)"], ["high", "High (1080p, best)"]].map(([value, label]) => ({ value, label }))} />
+                </label>
+                <div className="sm:col-span-2">
+                  <div className="text-xs text-muted">Write titles and captions for</div>
+                  <div className="mt-1.5 flex flex-wrap gap-2">
+                    {Object.entries(PLATFORM_LABELS).map(([p, label]) => {
+                      const on = s.platforms.includes(p);
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => set("platforms", on ? s.platforms.filter((x) => x !== p) : [...s.platforms, p])}
+                          className={cx("h-8 rounded-full border px-3 text-xs transition cursor-pointer", on ? "border-primary bg-primary-soft text-primary" : "border-border text-muted hover:text-text")}
+                          aria-pressed={on}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <Switch checked={s.context_padding} onChange={(v) => set("context_padding", v)} label="Context padding" hint="A short lead-in and tail around each clip" />
                 <Switch
                   checked={s.use_llm}
                   onChange={(v) => set("use_llm", v)}
-                  label="Use local AI editor"
-                  hint={meta?.llm.available ? `${meta.llm.model} re-ranks clips and writes copy` : meta?.llm.reason ?? "Unavailable"}
+                  label="Local AI editor"
+                  hint={meta?.llm.available ? `${meta.llm.model} re-reads the best moments and writes the copy` : meta?.llm.reason ?? "Unavailable"}
                 />
               </div>
-            </div>
-          )}
-        </Card>
-      </div>
+            )}
+          </div>
 
-      {/* Generate */}
-      <div className="xl:sticky xl:top-8 xl:self-start">
-        <Card className="p-5 sm:p-6">
-          <h2 className="font-display text-lg font-semibold">3. Generate</h2>
-          <ul className="mt-4 space-y-2 text-sm text-muted">
-            <li className="flex justify-between"><span>Clips</span><span className="text-text">{s.count}</span></li>
-            <li className="flex justify-between"><span>Length</span><span className="text-text">{s.min_dur}–{s.max_dur}s</span></li>
-            <li className="flex justify-between"><span>Format</span><span className="text-text">{s.aspect} · {s.crop_mode === "auto" ? "smart crop" : s.crop_mode}</span></li>
-            <li className="flex justify-between"><span>Captions</span><span className="text-text">{s.captions ? presets[s.caption_preset]?.label ?? s.caption_preset : "Off"}</span></li>
-            <li className="flex justify-between"><span>Copy for</span><span className="text-text">{s.platforms.length} platform{s.platforms.length === 1 ? "" : "s"}</span></li>
-            <li className="flex justify-between">
-              <span>AI editor</span>
-              <span className="text-text">{s.use_llm && meta?.llm.available ? meta.llm.model : "Signals only"}</span>
-            </li>
-          </ul>
-          <Button size="lg" className="mt-6 w-full" disabled={!ready} loading={busy} onClick={generate}>
-            {!busy && <Wand2 className="size-5" />}
-            {phase === "uploading" ? `Uploading… ${file ? Math.round((sent / file.size) * 100) : 0}%` : phase === "creating" ? "Starting…" : "AI Generate"}
-          </Button>
-          {phase === "uploading" && (
-            <Button variant="ghost" size="sm" className="mt-2 w-full" onClick={() => abort.current?.abort()}>
-              Cancel upload
-            </Button>
-          )}
-          <p className="mt-4 text-xs text-muted">
-            HypeSift transcribes, finds and ranks moments, then renders every clip with captions and framing, and
-            writes titles, descriptions and hashtags. You can edit everything afterwards.
-          </p>
-          {!ready && !busy && (
-            <Badge tone="neutral" className="mt-3">
-              {mode === "upload" ? "Choose a video file to continue" : "Paste a direct video link to continue"}
-            </Badge>
-          )}
-          <p className="mt-4 text-[11px] text-muted">Only upload videos you own or have permission to use.</p>
-        </Card>
+          <div className="py-5">{go}</div>
+        </div>
+
+        <div className="lg:sticky lg:top-5 lg:self-start">
+          <div className="rounded-2xl border border-border bg-surface p-5">
+            <div className="mx-auto mb-1 w-fit rounded-xl bg-surface-2 p-1 text-sm font-medium">
+              <span className="block rounded-lg bg-surface px-4 py-1 shadow-sm">Preview</span>
+            </div>
+            <p className="mb-4 text-center text-xs text-muted">This is a preview of how your video will look.</p>
+            <LivePreview s={s} style={style} ytid={ytid} fileUrl={mode === "upload" ? fileUrl : null} thumb={thumb} logo={logo} title={title} />
+            {s.instructions && (
+              <p className="mt-4 rounded-xl bg-primary-soft px-3 py-2 text-xs text-primary">
+                <Sparkles className="mr-1 inline size-3.5" />
+                AI focus: {s.instructions}
+              </p>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
