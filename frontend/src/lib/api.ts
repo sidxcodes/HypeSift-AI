@@ -74,13 +74,6 @@ export const api = {
   setPost: (id: string, plan: { status: NonNullable<PostPlan["status"]>; scheduled_at?: string | null; timezone?: string; platforms?: PostPlan["platforms"] }) =>
     req<Clip>(`/api/clips/${id}/post`, { method: "PUT", body: json(plan) }),
   posts: () => req<Clip[]>("/api/posts"),
-  fixClip: (id: string, text: string) =>
-    req<{ applied: boolean; reply: string; changes: string[]; engine: string; clip: Clip; job: Job | null }>(`/api/clips/${id}/fix`, {
-      method: "POST",
-      body: json({ text }),
-    }),
-  regenThumbnails: (id: string, text?: string) =>
-    req<{ job: Job }>(`/api/clips/${id}/thumbnails`, { method: "POST", body: json({ text: text || null }) }),
   storage: () => req<StorageUsage>("/api/storage"),
 
   assistant: (project_id: string, text: string, clip_id?: string) =>

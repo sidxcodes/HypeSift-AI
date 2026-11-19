@@ -129,14 +129,6 @@ class PublishIn(BaseModel):
     tone: str = "compelling"
 
 
-class FixIn(BaseModel):
-    text: str = Field(min_length=2, max_length=500)
-
-
-class ThumbsIn(BaseModel):
-    text: str | None = Field(default=None, max_length=60)
-
-
 class PublishUpdateIn(BaseModel):
     publish: dict[str, Any]
 

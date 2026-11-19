@@ -1,6 +1,6 @@
 # docker compose up --build   →  http://localhost:3000
 # Optional local LLM:          docker compose --profile llm up --build
-#                              then: docker compose exec ollama ollama pull gemma3:4b
+#                              then: docker compose exec ollama ollama pull qwen3.5:9b
 services:
   api:
     build: ./backend

@@ -9,7 +9,7 @@ Two common formats are recognised and turned into stacked vertical shorts:
   both play at the same time, one above the other.
 
 Layout and grouping use plain computer vision (fast and dependable). The optional local vision
-model (gemma3 via Ollama) only names the two sides from the video title ("GTA 6", "Cyberpunk
+model (via Ollama) only names the two sides from the video title ("GTA 6", "Cyberpunk
 2077") and describes scenes for clip titles; without it, sides are named in title order.
 """
 

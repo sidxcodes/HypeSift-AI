@@ -308,10 +308,6 @@ def render(
 
     ce = edits["captions"]
     chunks = ce.get("chunks") or default_chunks(words, start, end, ce.get("preset", "bold_creator"))
-    if edits.get("_fix_words"):  # words corrected with "Fix with AI"
-        from .clipfix import fix_words_in_chunks
-
-        chunks = fix_words_in_chunks(chunks, edits["_fix_words"])
     mapped = _map_chunks(chunks, fmap)
     style = cap.style_for(ce) if ce.get("enabled", True) else None
     overlays = []

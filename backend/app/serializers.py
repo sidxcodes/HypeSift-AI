@@ -53,22 +53,6 @@ def job_out(j: Job | None) -> dict[str, Any] | None:
     }
 
 
-def thumbnails_out(c: Clip, name: str) -> dict | None:
-    th = (c.edits or {}).get("_thumbs")
-    if not th or not th.get("files"):
-        return None
-    from .pipeline.thumbnail import DESIGNS
-
-    designs = []
-    for d, by in th["files"].items():
-        item = {"design": d, "label": DESIGNS.get(d, {}).get("label", d)}
-        for size, key in by.items():
-            item[size] = media_url(key)
-            item[f"{size}_download"] = media_url(key, f"{name}-thumbnail-{d}-{size}.jpg")
-        designs.append(item)
-    return {"text": th.get("text", ""), "designs": designs}
-
-
 def original_time(c: Clip) -> float | None:
     """Where a clip starts in the original video, when only sections of it were downloaded."""
     sections = ((c.project.media if c.project else None) or {}).get("sections") or []
@@ -112,7 +96,6 @@ def clip_out(c: Clip, project: Project | None = None) -> dict[str, Any]:
         "project_name": project.name if project else None,
         "post": c.post or {},
         "original_start": original_time(c),
-        "thumbnails": thumbnails_out(c, name),
     }
     out["insights"] = virality.insights(out)
     return out

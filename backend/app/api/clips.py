@@ -10,7 +10,7 @@ from ..jobs import enqueue
 from ..models import Clip, Job, Project, User
 from ..pipeline import captions
 from ..pipeline.render import default_chunks
-from ..schemas import ClipEditIn, FavoriteIn, FeedbackIn, FixIn, PublishIn, PublishUpdateIn, ThumbsIn
+from ..schemas import ClipEditIn, FavoriteIn, FeedbackIn, PublishIn, PublishUpdateIn
 from ..serializers import clip_out, job_out, project_out
 from ..storage import storage
 from ..tasks import load_signals, load_transcript, pkey
@@ -146,68 +146,6 @@ def update(cid: str, body: ClipEditIn, user: User = Depends(current_user), db: S
 @router.post("/{cid}/render")
 def rerender(cid: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     return update(cid, ClipEditIn(render=True), user, db)
-
-
-@router.post("/{cid}/fix")
-def fix_clip(cid: str, body: FixIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    """Fix with AI: describe what's wrong; the clip is changed and re-rendered."""
-    from ..pipeline import clipfix
-
-    c = get_clip(db, cid, user)
-    p = c.project
-    words = load_transcript(p.id).words
-    clip = {"start": c.start, "end": c.end, "title": c.title, "text": c.text, "edits": c.edits or {}}
-    ops, reply, engine = clipfix.plan(body.text, clip, words, allow_llm=p.settings.get("use_llm", True))
-    if not ops:
-        return {
-            "applied": False,
-            "reply": "I couldn't work out a change from that. Try e.g. “start 2 seconds earlier”, “it ends "
-            "mid-sentence”, “bigger captions”, “change the title to …” or “the captions say X but it should be Y”.",
-            "changes": [],
-            "engine": engine,
-            "clip": clip_out(c, p),
-            "job": None,
-        }
-    res = clipfix.apply(ops, clip, words, (p.media or {}).get("probe", {}).get("duration", c.end), request=body.text)
-    if not res["changes"]:
-        return {
-            "applied": False,
-            "reply": reply or "That's already how the clip is.",
-            "changes": [],
-            "engine": engine,
-            "clip": clip_out(c, p),
-            "job": None,
-        }
-    timing_changed = (res["start"], res["end"]) != (c.start, c.end)
-    c.start, c.end, c.title = res["start"], res["end"], res["title"]
-    c.edits = res["edits"]
-    if timing_changed:
-        c.text = " ".join(w.w for w in words if res["start"] <= w.s < res["end"]) or c.text
-    visual = [x for x in res["changes"] if not x.startswith("Title:")]
-    job = None
-    if visual:
-        c.render_status = "pending"
-        job = enqueue(db, user_id=user.id, kind="render", project_id=p.id, clip_id=c.id)
-    db.commit()
-    return {
-        "applied": True,
-        "reply": reply or "Done — " + "; ".join(res["changes"]) + ".",
-        "changes": res["changes"],
-        "engine": engine,
-        "clip": clip_out(c, p),
-        "job": job_out(job) if job else None,
-    }
-
-
-@router.post("/{cid}/thumbnails")
-def regen_thumbnails(cid: str, body: ThumbsIn, user: User = Depends(current_user), db: Session = Depends(get_db)):
-    c = get_clip(db, cid, user)
-    if c.render_status != "rendered":
-        raise HTTPException(409, "Render the clip first.")
-    job = enqueue(
-        db, user_id=user.id, kind="thumbs", project_id=c.project_id, clip_id=c.id, payload={"text": body.text}
-    )
-    return {"job": job_out(job)}
 
 
 @router.post("/{cid}/publish")

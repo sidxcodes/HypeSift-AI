@@ -73,7 +73,7 @@ export default function ProjectPage() {
   const [sort, setSort] = useState<Sort>("general");
   const [compact, setCompact] = useState(false);
   const [detailsId, setDetailsId] = useState<string | null>(null);
-  const [detailsTab, setDetailsTab] = useState<DrawerTab>("fix");
+  const [detailsTab, setDetailsTab] = useState<DrawerTab>("publish");
   const [postId, setPostId] = useState<string | null>(null);
   const [ask, setAsk] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -256,7 +256,7 @@ export default function ProjectPage() {
               compact={compact}
               onPost={() => setPostId(c.id)}
               onDetails={(tab) => {
-                setDetailsTab(tab ?? "fix");
+                setDetailsTab(tab ?? "publish");
                 setDetailsId(c.id);
               }}
               onFavorite={() => api.favorite(c.id, !c.favorite).then(load)}

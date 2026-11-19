@@ -6,20 +6,18 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, fmtTime } from "@/lib/api";
 import type { Clip } from "@/lib/types";
-import { FixWithAI } from "./FixWithAI";
 import { PublishPanel } from "./PublishPanel";
-import { ThumbnailsPanel } from "./ThumbnailsPanel";
 import { ScoreBreakdown } from "./ScoreBreakdown";
 import { useToast } from "./toast";
 import { Button, cx, Segmented } from "./ui";
 
-export type DrawerTab = "fix" | "thumbs" | "publish" | "score" | "transcript";
+export type DrawerTab = "publish" | "score" | "transcript";
 
 export function ClipDrawer({
   clip,
   onClose,
   onChange,
-  initialTab = "fix",
+  initialTab = "publish",
 }: {
   clip: Clip | null;
   onClose: () => void;
@@ -128,17 +126,13 @@ export function ClipDrawer({
                   value={tab}
                   onChange={setTab}
                   options={[
-                    { value: "fix", label: "Fix with AI" },
-                    { value: "thumbs", label: "Thumbnails" },
-                    { value: "publish", label: "Copy" },
+                    { value: "publish", label: "Publish" },
                     { value: "score", label: "Why this clip" },
                     { value: "transcript", label: "Transcript" },
                   ]}
                   className="flex-wrap"
                 />
                 <div className="mt-5">
-                  {tab === "fix" && <FixWithAI clip={clip} onChange={onChange} />}
-                  {tab === "thumbs" && <ThumbnailsPanel clip={clip} onChange={onChange} />}
                   {tab === "publish" && <PublishPanel clip={clip} onChange={onChange} />}
                   {tab === "score" && <ScoreBreakdown clip={clip} />}
                   {tab === "transcript" && <p className="whitespace-pre-wrap text-sm leading-relaxed">{clip.text || "No speech in this clip."}</p>}

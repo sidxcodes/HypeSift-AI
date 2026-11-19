@@ -31,7 +31,7 @@ Ollama. No paid APIs, no keys.
 | Video | FFmpeg (NVENC when available, libx264 fallback) · libass caption burn-in |
 | Speech | faster-whisper with word timestamps (CUDA → CPU fallback) |
 | Vision | OpenCV face + motion tracking, histogram scene-cut detection |
-| AI editor | Ollama + `gemma3:4b` (optional) for semantic re-ranking and copywriting |
+| AI editor | Ollama + `qwen3.5:9b` (optional; falls back to `qwen3.5:4b` / `gemma3:4b`): rates each clip, re-cuts it to the strongest opening line and payoff, ranks the best head to head, writes the copy |
 
 ## What works today
 
@@ -57,13 +57,6 @@ Ollama. No paid APIs, no keys.
   A and B (told apart by the version badge) are paired so both play at once, like comparison Shorts. The local
   vision model names each side from the title and writes the scene into the clip title; name labels on
   each panel. Real run: "GTA 6 vs Cyberpunk 2077" → 6 labelled comparison clips in 4.5 min.
-- **Fix with AI:** tell the AI what's wrong with a clip in your own words ("start 2 seconds earlier", "it ends
-  mid-sentence", "the captions say X but it should be Y", "make the title funnier", "show the whole frame").
-  Common requests are understood instantly by rules, anything else by the local LLM reading the clip's timed
-  transcript; boundaries snap to sentence starts/ends like a human editor would, and the clip re-renders.
-- **AI thumbnails:** for every clip, the vision model picks the most eye-catching frame (after a sharpness and
-  face check), the LLM writes 2-5 punchy words, and three designs (Bold, Pop, Clean) are made in 1080x1920 and
-  1280x720, with text sized to fit and kept off faces. Regenerate with your own text.
 - **Sees quiet moments:** moments with little speech (gameplay, sport, music) are rated by the vision model
   looking at them, not only by audio and motion.
 - **Import → Customize → Generate:** paste a link, optionally add **custom instructions** ("find the
@@ -133,7 +126,7 @@ production build of the web app. Closing the last HypeSift window stops the serv
 ## Run it locally (development)
 
 Prerequisites (all free): **Python 3.12+**, **Node 20+**, **FFmpeg** on PATH (`winget install Gyan.FFmpeg`,
-`brew install ffmpeg`, or `apt install ffmpeg`). Optional: **Ollama** with `ollama pull gemma3:4b`, and an
+`brew install ffmpeg`, or `apt install ffmpeg`). Optional: **Ollama** with `ollama pull qwen3.5:9b`, and an
 NVIDIA GPU for faster transcription and encoding.
 
 ```bash

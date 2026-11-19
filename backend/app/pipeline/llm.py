@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import logging
 import time
-from functools import lru_cache
 
 import httpx
 
@@ -18,6 +17,10 @@ from ..config import get_settings
 log = logging.getLogger("hypesift.llm")
 
 _status_cache: tuple[float, dict] | None = None
+_no_think: set[str] = set()  # models that reject the "think" switch
+
+# Best first. The configured model is used when it's installed; otherwise the best one that is.
+PREFERRED = ["qwen3.5:9b", "qwen3:8b", "qwen3.5:4b", "gemma3:4b"]
 
 
 def status(force: bool = False) -> dict:
@@ -31,11 +34,15 @@ def status(force: bool = False) -> dict:
     try:
         r = httpx.get(f"{s.ollama_url}/api/tags", timeout=2.5)
         names = [m.get("name", "") for m in r.json().get("models", [])]
-        ok = any(n == s.ollama_model or n.split(":")[0] == s.ollama_model for n in names)
+
+        def have(m: str) -> bool:
+            return any(n == m or n == f"{m}:latest" for n in names)
+
+        model = next((m for m in [s.ollama_model, *PREFERRED] if have(m)), None)
         out = {
-            "available": ok,
-            "model": s.ollama_model,
-            "reason": "" if ok else f"Model '{s.ollama_model}' is not pulled (run: ollama pull {s.ollama_model})",
+            "available": model is not None,
+            "model": model or s.ollama_model,
+            "reason": "" if model else f"No model pulled (run: ollama pull {s.ollama_model})",
         }
     except (httpx.HTTPError, ValueError):
         out = {"available": False, "model": s.ollama_model, "reason": "Ollama is not running"}
@@ -43,42 +50,63 @@ def status(force: bool = False) -> dict:
     return out
 
 
-def chat_json(system: str, user: str, temperature: float = 0.4, max_tokens: int = 1200) -> dict | list:
+def model() -> str:
+    return status()["model"]
+
+
+def _chat(messages: list[dict], options: dict, fmt: str | None = "json") -> str:
+    """One Ollama chat call. Reasoning ("think") is switched off: answers are short JSON and the
+    smaller budget keeps a 9B model fast. The model is released after a minute so the GPU is free
+    for speech-to-text and encoding."""
     s = get_settings()
-    r = httpx.post(
-        f"{s.ollama_url}/api/chat",
-        json={
-            "model": s.ollama_model,
-            "stream": False,
-            "format": "json",
-            "options": {"temperature": temperature, "num_predict": max_tokens, "num_ctx": 8192},
-            "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        },
-        timeout=s.llm_timeout_seconds,
-    )
+    m = model()
+    body: dict = {
+        "model": m,
+        "stream": False,
+        "options": {"num_ctx": 8192, **options},
+        "messages": messages,
+        "keep_alive": "60s",
+    }
+    if fmt:
+        body["format"] = fmt
+    if m not in _no_think:
+        body["think"] = False
+    r = httpx.post(f"{s.ollama_url}/api/chat", json=body, timeout=s.llm_timeout_seconds)
+    if r.status_code == 400 and "think" in r.text.lower():
+        _no_think.add(m)
+        body.pop("think", None)
+        r = httpx.post(f"{s.ollama_url}/api/chat", json=body, timeout=s.llm_timeout_seconds)
     r.raise_for_status()
-    content = r.json().get("message", {}).get("content", "")
+    return r.json().get("message", {}).get("content", "")
+
+
+def unload() -> None:
+    """Free the model's GPU memory now (before Whisper runs)."""
+    if not status()["available"]:
+        return
+    import contextlib
+
+    with contextlib.suppress(httpx.HTTPError):
+        httpx.post(f"{get_settings().ollama_url}/api/generate", json={"model": model(), "keep_alive": 0}, timeout=10)
+
+
+def chat_json(system: str, user: str, temperature: float = 0.4, max_tokens: int = 1200) -> dict | list:
+    content = _chat(
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        {"temperature": temperature, "num_predict": max_tokens},
+    )
     return _parse(content)
 
 
 def vision_json(prompt: str, images: list[bytes], max_tokens: int = 200) -> dict:
-    """Ask the local multimodal model (gemma3) about JPEG images; returns parsed JSON."""
+    """Ask the local multimodal model about JPEG images; returns parsed JSON."""
     import base64
 
-    s = get_settings()
-    r = httpx.post(
-        f"{s.ollama_url}/api/chat",
-        json={
-            "model": s.ollama_model,
-            "stream": False,
-            "format": "json",
-            "options": {"temperature": 0.1, "num_predict": max_tokens},
-            "messages": [{"role": "user", "content": prompt, "images": [base64.b64encode(i).decode() for i in images]}],
-        },
-        timeout=s.llm_timeout_seconds,
+    content = _chat(
+        [{"role": "user", "content": prompt, "images": [base64.b64encode(i).decode() for i in images]}],
+        {"temperature": 0.1, "num_predict": max_tokens},
     )
-    r.raise_for_status()
-    out = _parse(r.json().get("message", {}).get("content", ""))
+    out = _parse(content)
     return out if isinstance(out, dict) else {}
 
 
@@ -92,9 +120,8 @@ def _parse(content: str) -> dict | list:
         raise
 
 
-@lru_cache(maxsize=1)
 def engine_label() -> str:
-    return f"local LLM ({get_settings().ollama_model} via Ollama)"
+    return f"local LLM ({model()} via Ollama)"
 
 
 # ----------------------------------------------------------------------------- ranking
@@ -114,38 +141,66 @@ def _rating(row: dict, key: str) -> float:
         return 5.0
 
 
-def semantic_rank(cands, ctx, batch: int = 5) -> None:
-    """Fill ``semantic`` (0-100), ``title`` and ``llm_note`` on each candidate in place."""
+def _numbered(c, ctx) -> tuple[str, int, int]:
+    """The excerpt as numbered sentences, with one sentence of context on each side.
+    Returns (text, first_index, last_index) in ctx.sentences."""
+    ss = getattr(ctx, "sentences", None) or []
+    if c.s0 < 0 or not ss:
+        return c.text[:1100], -1, -1
+    lo, hi = max(0, c.s0 - 1), min(len(ss) - 1, c.s1 + 1)
+    lines = []
+    for k in range(lo, hi + 1):
+        tag = "before" if k < c.s0 else "after" if k > c.s1 else "in"
+        lines.append(f"  <{k - lo}|{tag}> {ss[k].text}")
+    return "\n".join(lines)[:1600], lo, hi
+
+
+def semantic_rank(cands, ctx, batch: int = 4) -> None:
+    """The AI editor: rates each excerpt, tightens its cut points, then ranks the best head to head.
+
+    Fills ``semantic`` (0-100), ``title`` and ``llm_note`` on each candidate in place, and may move a
+    candidate's start/end to better sentence boundaries (strong opening line, ends on the payoff)."""
     if not status()["available"]:
         return
+    from . import highlights
+
+    ask = ctx.prefs.instructions
     for i in range(0, len(cands), batch):
         group = cands[i : i + batch]
-        items = "\n\n".join(f"[{n}] ({c.duration:.0f}s) {c.text[:1100]}" for n, c in enumerate(group))
-        ask = ctx.prefs.instructions
+        blocks, spans = [], []
+        for n, c in enumerate(group):
+            text, lo, hi = _numbered(c, ctx)
+            spans.append((lo, hi))
+            blocks.append(f"[{n}] ({c.duration:.0f}s)\n{text}")
         fit_rule = f"fit (0-10: how well it matches the creator's request: {ask[:400]!r}), " if ask else ""
         fit_example = '"fit": 7, ' if ask else ""
         user = (
-            f"Content type: {ctx.genre}. Requested mood: {ctx.prefs.mood}.\n"
-            f"Rate each excerpt. For each return: id, {fit_rule}hook (0-10: would the FIRST sentence stop someone "
-            f"scrolling YouTube Shorts), "
-            f"payoff (0-10: does it deliver a satisfying point/punchline/reaction), standalone (0-10: understandable "
-            f"without the rest of the video), mood_fit (0-10), title (max 60 chars, accurate, no clickbait, no emojis), "
-            f"why (max 18 words, concrete).\n"
-            f'Return {{"items": [{{"id": 0, {fit_example}"hook": 7, "payoff": 6, "standalone": 8, "mood_fit": 5, '
-            f'"title": "...", "why": "..."}}]}}\n\n{items}'
+            f"Content type: {ctx.genre}. Requested mood: {ctx.prefs.mood}. Target length {ctx.prefs.min_dur:.0f}-"
+            f"{ctx.prefs.max_dur:.0f}s.\n"
+            "Each excerpt is a list of numbered sentences: <n|in> are in the clip now, <n|before>/<n|after> are the "
+            "sentences around it. For each excerpt return: id; start and end (sentence numbers): where the BEST "
+            "standalone clip should begin and end. Start on the line that grabs attention (skip filler, greetings and "
+            "half-thoughts); end right after the payoff (the answer, punchline or reaction), not mid-thought. Keep the "
+            f"original numbers if they're already right. Then rate that best version: {fit_rule}hook (0-10: would the "
+            "first sentence stop someone scrolling YouTube Shorts), payoff (0-10: a satisfying point, punchline or "
+            "reaction), standalone (0-10: makes sense without the rest of the video), mood_fit (0-10), title (max 60 "
+            "chars, accurate, specific, no clickbait, no emojis), why (max 18 words, concrete).\n"
+            f'Return {{"items": [{{"id": 0, "start": 1, "end": 4, {fit_example}"hook": 7, "payoff": 6, '
+            f'"standalone": 8, "mood_fit": 5, "title": "...", "why": "..."}}]}}\n\n' + "\n\n".join(blocks)
         )
         try:
-            data = chat_json(RANK_SYSTEM, user, temperature=0.2)
+            data = chat_json(RANK_SYSTEM, user, temperature=0.2, max_tokens=900)
         except Exception as e:  # noqa: BLE001
             log.warning("semantic rank failed: %s", e)
             return
         rows = data.get("items", []) if isinstance(data, dict) else data
         for row in rows if isinstance(rows, list) else []:
             try:
-                c = group[int(row.get("id"))]
+                k = int(row.get("id"))
+                c = group[k]
             except (TypeError, ValueError, IndexError):
                 continue
-
+            _refine(c, row, spans[k], ctx, highlights)
             mood_w = 0.15 if ctx.prefs.mood not in ("any", "") else 0.0
             fit_w = 0.4 if ask else 0.0
             rest = 1 - mood_w - fit_w
@@ -167,6 +222,66 @@ def semantic_rank(cands, ctx, batch: int = 5) -> None:
             if why:
                 c.llm_note = "AI editor: " + why.rstrip(".") + "."
     vision_rank(cands, ctx)
+    head_to_head(cands, ctx)
+
+
+def _refine(c, row: dict, span: tuple[int, int], ctx, highlights) -> None:
+    """Move the clip to the sentence range the editor chose, if it's a sensible length."""
+    lo, hi = span
+    if lo < 0:
+        return
+    try:
+        a, b = lo + int(row.get("start")), lo + int(row.get("end"))
+    except (TypeError, ValueError):
+        return
+    if not (lo <= a <= b <= hi) or (a, b) == (c.s0, c.s1):
+        return
+    start, end = highlights._padded(ctx, a, b)
+    p = ctx.prefs
+    if not (max(4.0, p.min_dur * 0.6) <= end - start <= p.max_dur + 4):
+        return
+    if any(start + 0.3 < x < end - 0.3 for x in getattr(p, "barriers", [])):
+        return
+    old = (round(c.start, 1), round(c.end, 1))
+    c.s0, c.s1, c.start, c.end = a, b, start, end
+    keep = (c.semantic, c.title, c.llm_note)
+    highlights.score(c, ctx)  # signals, hook, context ... for the new range
+    c.semantic, c.title, c.llm_note = keep
+    c.evidence.setdefault("hook", []).insert(0, f"AI editor tightened the cut (was {old[0]}-{old[1]}s)")
+
+
+def head_to_head(cands, ctx, top: int = 8) -> None:
+    """Rank the best candidates against each other ("which gets the most views?"): comparative
+    judgements are steadier than separate 0-10 scores. Adds up to +8 to the best ones."""
+    rated = [c for c in cands if c.semantic is not None]
+    if len(rated) < 3:
+        return
+    pool = sorted(rated, key=lambda c: -(0.6 * c.heuristic + 0.4 * c.semantic))[:top]
+    items = "\n\n".join(f"[{n}] ({c.duration:.0f}s) {c.text[:500]}" for n, c in enumerate(pool))
+    try:
+        d = chat_json(
+            RANK_SYSTEM,
+            f"These {len(pool)} clips are candidates from the same video ({ctx.genre}). Order them from the one most "
+            "likely to get views and watch-time as a YouTube Short to the least. Consider the opening line, the payoff "
+            'and whether it stands alone. Return {"order": [ids, best first]}\n\n' + items,
+            temperature=0.1,
+            max_tokens=120,
+        )
+        order = [int(x) for x in (d.get("order") or [])] if isinstance(d, dict) else []
+    except Exception as e:  # noqa: BLE001
+        log.info("head-to-head ranking failed: %s", e)
+        return
+    seen: list[int] = []
+    for x in order:
+        if 0 <= x < len(pool) and x not in seen:
+            seen.append(x)
+    for place, x in enumerate(seen):
+        bonus = max(0.0, 8.0 - place * 8.0 / max(1, len(pool) - 1))
+        c = pool[x]
+        c.semantic = round(min(100.0, c.semantic + bonus), 1)
+        c.dims["semantic"] = c.semantic
+        if place == 0:
+            c.llm_note = (c.llm_note + " " if c.llm_note else "") + "Ranked #1 head to head."
 
 
 VISION_MAX = 10
