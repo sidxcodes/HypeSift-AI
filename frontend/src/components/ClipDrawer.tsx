@@ -6,12 +6,13 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, fmtTime } from "@/lib/api";
 import type { Clip } from "@/lib/types";
+import { LayoutPanel } from "./LayoutPanel";
 import { PublishPanel } from "./PublishPanel";
 import { ScoreBreakdown } from "./ScoreBreakdown";
 import { useToast } from "./toast";
 import { Button, cx, Segmented } from "./ui";
 
-export type DrawerTab = "publish" | "score" | "transcript";
+export type DrawerTab = "publish" | "layout" | "score" | "transcript";
 
 export function ClipDrawer({
   clip,
@@ -57,11 +58,11 @@ export function ClipDrawer({
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 40, opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="absolute inset-y-0 right-0 flex w-full max-w-4xl flex-col overflow-hidden bg-bg shadow-2xl sm:rounded-l-2xl"
+            className="absolute inset-y-0 right-0 flex w-full max-w-4xl flex-col overflow-hidden bg-bg shadow-2xl sm:rounded-l-[28px]"
           >
-            <div className="flex items-center justify-between gap-3 border-b border-border px-5 h-14">
-              <div className="min-w-0 truncate font-display font-semibold">{clip.title}</div>
-              <button onClick={onClose} className="p-2 text-muted hover:text-text cursor-pointer" aria-label="Close">
+            <div className="hero-band flex items-center justify-between gap-3 px-5 h-16">
+              <div className="min-w-0 truncate text-lg font-semibold text-white">{clip.title}</div>
+              <button onClick={onClose} className="p-2 text-white/80 hover:text-white cursor-pointer" aria-label="Close">
                 <X className="size-5" />
               </button>
             </div>
@@ -127,6 +128,7 @@ export function ClipDrawer({
                   onChange={setTab}
                   options={[
                     { value: "publish", label: "Publish" },
+                    { value: "layout", label: "Layout & title" },
                     { value: "score", label: "Why this clip" },
                     { value: "transcript", label: "Transcript" },
                   ]}
@@ -134,6 +136,7 @@ export function ClipDrawer({
                 />
                 <div className="mt-5">
                   {tab === "publish" && <PublishPanel clip={clip} onChange={onChange} />}
+                  {tab === "layout" && <LayoutPanel key={clip.id} clip={clip} onChange={onChange} />}
                   {tab === "score" && <ScoreBreakdown clip={clip} />}
                   {tab === "transcript" && <p className="whitespace-pre-wrap text-sm leading-relaxed">{clip.text || "No speech in this clip."}</p>}
                 </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/components/AppShell";
 import { ChevronRight, Clapperboard, Home, Loader2, RefreshCw, Rows3, Sparkles, Trash2, Upload, X } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -173,23 +174,31 @@ export default function ProjectPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <nav className="flex min-w-0 items-center gap-1.5 text-sm" aria-label="Breadcrumb">
-          <Link href="/app/projects" className="inline-flex items-center gap-1.5 text-muted hover:text-text">
-            <Home className="size-4" /> Projects
-          </Link>
-          <ChevronRight className="size-4 shrink-0 text-muted" />
-          <span className="truncate font-medium">{p.name}</span>
-        </nav>
-        <div className="flex gap-1">
-          <Button variant="ghost" size="sm" onClick={regenerate} disabled={!!busy} title="Run AI Generate again">
-            <RefreshCw className="size-4" /> Regenerate
-          </Button>
-          <Button variant="ghost" size="sm" onClick={removeProject} aria-label="Delete project">
-            <Trash2 className="size-4" />
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title={<span className="line-clamp-2 break-words">{p.name}</span>}
+        subtitle={
+          <nav className="flex items-center gap-1.5" aria-label="Breadcrumb">
+            <Link href="/app/projects" className="inline-flex items-center gap-1.5 hover:text-white">
+              <Home className="size-3.5" /> Projects
+            </Link>
+            <ChevronRight className="size-3.5 shrink-0" />
+            <span>
+              {p.clip_count} clip{p.clip_count === 1 ? "" : "s"}
+              {p.analysis?.ranking_engine ? ` · picked by ${String(p.analysis.ranking_engine)}` : ""}
+            </span>
+          </nav>
+        }
+        actions={
+          <>
+            <Button variant="accent" onClick={regenerate} disabled={!!busy} title="Run AI Generate again">
+              <RefreshCw className="size-4" /> Regenerate
+            </Button>
+            <Button variant="onHero" onClick={removeProject} aria-label="Delete project">
+              <Trash2 className="size-4" />
+            </Button>
+          </>
+        }
+      />
 
       {running && genJob && <Banner job={genJob} onCancel={() => api.cancelJob(genJob.id).then(load)} />}
       {discoverJobs.map((j) => (

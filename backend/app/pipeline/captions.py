@@ -347,6 +347,212 @@ EFFECTS = {
 
 POSITIONS = {"top": (8, 0.12), "middle": (5, 0.0), "lower": (2, 0.24), "bottom": (2, 0.12)}
 
+# Hook title designs (first ~3 s of every clip)
+TITLE_STYLES = {
+    "impact": "Impact pop",  # chunky comic font, coloured key words, thick outline, pops in
+    "box": "Bold box",  # brand-colour box, black text, slight tilt, slams in
+    "neon": "Neon glow",  # white text with a coloured glow, flickers on
+    "minimal": "Minimal",  # clean fade
+}
+TITLE_ACCENTS = ["#FFD60A", "#FF3B30", "#34C759", "#3FA9FF"]
+_STOP = set(
+    [
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "but",
+        "so",
+        "to",
+        "of",
+        "in",
+        "on",
+        "at",
+        "for",
+        "with",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "it",
+        "its",
+        "this",
+        "that",
+        "these",
+        "those",
+        "i",
+        "you",
+        "he",
+        "she",
+        "we",
+        "they",
+        "my",
+        "your",
+        "our",
+        "their",
+        "me",
+        "him",
+        "her",
+        "us",
+        "them",
+        "do",
+        "does",
+        "did",
+        "have",
+        "has",
+        "had",
+        "not",
+        "no",
+        "yes",
+        "just",
+        "very",
+        "really",
+        "what",
+        "how",
+        "why",
+        "when",
+        "who",
+        "where",
+        "which",
+        "than",
+        "then",
+        "there",
+        "here",
+        "about",
+        "from",
+        "into",
+        "over",
+        "out",
+        "up",
+        "down",
+        "as",
+        "by",
+        "if",
+    ]
+)
+
+
+def anchor_for(pos: dict | None, width: int, height: int, default: tuple[int, int, int]) -> tuple[int, int, int]:
+    """A free position {x, y} (0-1) -> ASS anchor. Left/right thirds anchor on that edge so long
+    lines never run off the screen."""
+    if not pos or pos.get("x") is None or pos.get("y") is None:
+        return default
+    x, y = max(0.0, min(1.0, float(pos["x"]))), max(0.04, min(0.96, float(pos["y"])))
+    m = int(56 * width / 1080)
+    if x < 0.38:
+        return max(m, int(x * width)), int(y * height), 4
+    if x > 0.62:
+        return min(width - m, int(x * width)), int(y * height), 6
+    return int(x * width), int(y * height), 5
+
+
+def _title_lines(text: str, max_line: int = 16) -> list[str]:
+    words = text.split()
+    if len(text) <= max_line or len(words) < 2:
+        return [text]
+    best, cut = 1e9, 1
+    for i in range(1, len(words)):
+        a, b = " ".join(words[:i]), " ".join(words[i:])
+        d = abs(len(a) - len(b))
+        if d < best:
+            best, cut = d, i
+    lines = [" ".join(words[:cut]), " ".join(words[cut:])]
+    if max(len(x) for x in lines) > max_line * 1.6 and len(words) >= 3:
+        n = len(words)
+        lines = [" ".join(words[: n // 3]), " ".join(words[n // 3 : 2 * n // 3]), " ".join(words[2 * n // 3 :])]
+    return lines
+
+
+def _key_words(words: list[str], keywords: set[str]) -> set[int]:
+    """Indexes of the 1-3 words worth colouring: numbers, the clip's keywords, then the longest."""
+    clean = [re.sub(r"[^a-z0-9$%]", "", w.lower()) for w in words]
+    pick = {i for i, c in enumerate(clean) if c and (re.search(r"\d", c) or c in keywords) and c not in _STOP}
+    if len(pick) < 2:
+        rest = sorted(
+            (i for i, c in enumerate(clean) if c and c not in _STOP and i not in pick), key=lambda i: -len(clean[i])
+        )
+        pick |= set(rest[: 2 - len(pick)])
+    return set(sorted(pick)[:3])
+
+
+def title_events(ov: dict, width: int, height: int, seam: float | None, keywords: set[str] | None = None) -> list[str]:
+    """The hook title: a designed, animated title card."""
+    k = width / 1080
+    text = _esc(str(ov.get("text", "")).strip())
+    if not text:
+        return []
+    s, e = float(ov.get("start", 0)), float(ov.get("end", 3.0))
+    design = ov.get("style") if ov.get("style") in TITLE_STYLES else "impact"
+    default_y = seam if seam is not None else 0.2
+    x, y, an = anchor_for(ov.get("pos"), width, height, (width // 2, int(height * default_y), 5))
+    accent = ov.get("bg") if ov.get("bg") and ov.get("bg") not in ("#C6F432",) else None
+    scale = max(0.6, min(1.6, float(ov.get("size_scale") or 1.0)))
+    out: list[str] = []
+    ms = int((e - s) * 1000)
+    if design == "impact":
+        upper = text.upper()
+        lines = _title_lines(upper, 15)
+        words_all = upper.split()
+        keys = _key_words(words_all, keywords or set())
+        palette = [accent] + TITLE_ACCENTS if accent else TITLE_ACCENTS
+        size = int(104 * k * scale * (0.86 if len(lines) == 3 else 1))
+        body, wi, ci = [], 0, 0
+        for line in lines:
+            parts = []
+            for w in line.split():
+                if wi in keys:
+                    parts.append(f"{{\\1c{ass_color(palette[ci % len(palette)])}}}{w}{{\\1c&HFFFFFF&}}")
+                    ci += 1
+                else:
+                    parts.append(w)
+                wi += 1
+            body.append(" ".join(parts))
+        tags = (
+            f"\\an{an}\\pos({x},{y})\\fn Luckiest Guy\\fs{size}\\bord{11 * k * scale:.1f}\\shad{5 * k:.1f}"
+            f"\\4c&H000000&\\3c&H000000&\\1c&HFFFFFF&\\frz-2\\fscx0\\fscy0"
+            f"\\t(0,170,\\fscx122\\fscy122)\\t(170,300,\\fscx100\\fscy100\\frz0)"
+            f"\\t({max(300, ms - 220)},{ms},\\fscx108\\fscy108\\alpha&HFF&)"
+        )
+        out.append(f"Dialogue: 5,{ts(s)},{ts(e)},Title,,0,0,0,,{{{tags}}}" + "\\N".join(body))
+    elif design == "box":
+        col = accent or "#FFD60A"
+        size = int(76 * k * scale)
+        lines = _title_lines(text.upper(), 20)
+        tags = (
+            f"\\an{an}\\pos({x},{y})\\fn Archivo Black\\fs{size}\\bord{20 * k * scale:.1f}\\shad{8 * k:.1f}"
+            f"\\1c&H101010&\\3c{ass_color(col)}\\4c&H000000&\\4a&H60&\\frz3\\fscx160\\fscy160\\alpha&HFF&"
+            f"\\t(0,140,\\fscx96\\fscy96\\alpha&H00&\\frz-2)\\t(140,240,\\fscx100\\fscy100)"
+            f"\\t({max(240, ms - 200)},{ms},\\alpha&HFF&)"
+        )
+        out.append(f"Dialogue: 5,{ts(s)},{ts(e)},TitleBox,,0,0,0,,{{{tags}}}" + "\\N".join(lines))
+    elif design == "neon":
+        col = accent or "#3FA9FF"
+        size = int(100 * k * scale)
+        lines = _title_lines(text.upper(), 16)
+        base = f"\\an{an}\\pos({x},{y})\\fn Poppins ExtraBold\\fs{size}\\shad0"
+        fade = f"\\t({max(200, ms - 220)},{ms},\\alpha&HFF&)"
+        # outer halo (border only, heavily blurred), then a tighter glow, then crisp white text
+        halo = f"{base}\\1a&HFF&\\3c{ass_color(col)}\\3a&HFF&\\bord{26 * k * scale:.1f}\\blur{22 * k:.1f}"
+        halo += f"\\t(0,60,\\3a&H20&)\\t(60,110,\\3a&HB0&)\\t(110,190,\\3a&H20&){fade}"
+        inner = f"{base}\\1a&HFF&\\3c{ass_color(col)}\\3a&HFF&\\bord{9 * k * scale:.1f}\\blur{5 * k:.1f}"
+        inner += f"\\t(0,60,\\3a&H00&)\\t(60,110,\\3a&HA0&)\\t(110,190,\\3a&H00&){fade}"
+        crisp = f"{base}\\1c&HFFFFFF&\\bord0\\alpha&HFF&\\t(0,60,\\alpha&H00&)\\t(60,110,\\alpha&H90&)"
+        crisp += f"\\t(110,190,\\alpha&H00&){fade}"
+        for layer, tags in ((3, halo), (4, inner), (5, crisp)):
+            out.append(f"Dialogue: {layer},{ts(s)},{ts(e)},Title,,0,0,0,,{{{tags}}}" + "\\N".join(lines))
+    else:  # minimal: clean white text on a soft dark box
+        col = ass_color(ov.get("color", "#FFFFFF"))
+        size = int(92 * k * scale)
+        tags = (
+            f"\\an{an}\\pos({x},{y})\\fn Poppins ExtraBold\\fs{size}\\1c{col}\\3c&H000000&\\3a&H50&"
+            f"\\bord{18 * k * scale:.1f}\\shad0\\fad(250,250)"
+        )
+        out.append(f"Dialogue: 5,{ts(s)},{ts(e)},TitleBox,,0,0,0,,{{{tags}}}" + "\\N".join(_title_lines(text, 18)))
+    return out
+
 
 def style_for(edits_captions: dict[str, Any] | None) -> dict[str, Any]:
     ec = edits_captions or {}
@@ -451,6 +657,7 @@ def build_ass(
     progress_bar: str | None = None,
     seam: float | None = None,
     labels: dict | None = None,
+    progress_pos: str = "bottom",
 ) -> str:
     """Return a complete ASS document. ``style`` None disables captions (overlays only).
     ``progress_bar`` is a hex colour for a bar that fills along the bottom edge (None = off)."""
@@ -490,9 +697,10 @@ def build_ass(
             f"{border_style},{outline:.1f},{style['shadow'] * k:.1f},{align},{int(70 * k)},{int(70 * k)},{margin_v},1"
         )
         anchor = (width // 2, {8: margin_v, 5: height // 2}.get(align, height - margin_v), align)
-        if seam is not None and style["position"] in ("lower", "bottom", "middle"):
+        if seam is not None and style["position"] in ("lower", "bottom", "middle") and not style.get("pos"):
             # stacked layouts (facecam + game, two speakers): captions sit on the join between panels
             anchor = (width // 2, int(height * seam), 5)
+        anchor = anchor_for(style.get("pos"), width, height, anchor)
         events += _caption_events(chunks, style, keywords or set(), k, anchor)
     lines.append(
         f"Style: Over,Poppins ExtraBold,{int(64 * k)},&H00FFFFFF,&H00FFFFFF,&H00000000,&H64000000,0,0,0,0,"
@@ -514,6 +722,14 @@ def build_ass(
             if text:
                 events.append(f"Dialogue: 2,{ts(0)},{ts(duration)},Lab,,0,0,0,,{{\\pos({pad},{y})}}{text.upper()}")
     lines.append(
+        f"Style: Title,Luckiest Guy,{int(100 * k)},&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,"
+        f"100,100,1,0,1,{10 * k:.1f},{5 * k:.1f},5,{int(50 * k)},{int(50 * k)},0,1"
+    )
+    lines.append(
+        f"Style: TitleBox,Archivo Black,{int(76 * k)},&H00101010,&H00101010,&H0014D6FF,&H00000000,0,0,0,0,"
+        f"100,100,0,0,3,{20 * k:.1f},{8 * k:.1f},5,{int(60 * k)},{int(60 * k)},0,1"
+    )
+    lines.append(
         "Style: Bar,Poppins Medium,10,&H00FFFFFF,&H00FFFFFF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1"
     )
     for ov in overlays or []:
@@ -524,6 +740,8 @@ def build_ass(
         e = float(ov.get("end", duration or 9999))
         if ov.get("kind") == "watermark":
             events.append(f"Dialogue: 2,{ts(s)},{ts(e)},Mark,,0,0,0,,{text}")
+        elif ov.get("kind") == "title":
+            events += title_events({**ov, "start": s, "end": e}, width, height, seam, keywords)
         else:
             col = ass_color(ov.get("color", "#0B0F14"))
             bg = ass_color(ov.get("bg", "#C6F432"), 0.95)
@@ -531,12 +749,12 @@ def build_ass(
     if progress_bar and duration:
         # A full-width rectangle revealed left to right by an animated clip: a retention bar.
         bh = max(4, int(10 * k))
-        y0 = height - bh
+        y0 = 0 if progress_pos == "top" else height - bh
         col = ass_color(progress_bar)
         ms = int(duration * 1000)
         events.append(
             f"Dialogue: 3,{ts(0)},{ts(duration)},Bar,,0,0,0,,"
-            f"{{\\pos(0,{y0})\\1c{col}\\bord0\\shad0\\clip(0,{y0},1,{height})\\t(0,{ms},\\clip(0,{y0},{width},{height}))\\p1}}"
+            f"{{\\pos(0,{y0})\\1c{col}\\bord0\\shad0\\clip(0,{y0},1,{y0 + bh})\\t(0,{ms},\\clip(0,{y0},{width},{y0 + bh}))\\p1}}"
             f"m 0 0 l {width} 0 {width} {bh} 0 {bh}{{\\p0}}"
         )
     lines += ["", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"]

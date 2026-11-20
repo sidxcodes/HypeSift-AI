@@ -20,10 +20,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, DEFAULT_SETTINGS, fmtBytes, fmtTime, uploadFile } from "@/lib/api";
 import { chunkWords } from "@/lib/captions";
 import type { Asset, CaptionStyle, Effect, GenerateSettings, Transition, UrlInfo } from "@/lib/types";
-import { useSession } from "./AppShell";
+import { PageHeader, useSession } from "./AppShell";
 import { CaptionOverlay, CaptionSample } from "./CaptionPreview";
 import { useToast } from "./toast";
 import { Button, cx, Input, Select, Switch } from "./ui";
+import { ComparePlayPicker, LengthPicker, PositionPicker, TitleStylePicker } from "./Pickers";
 
 const LANGS: [string, string][] = [
   ["auto", "Auto-detect"], ["en", "English"], ["hi", "Hindi"], ["es", "Spanish"], ["fr", "French"], ["de", "German"],
@@ -190,6 +191,18 @@ function AssetBox({
 
 // ----------------------------------------------------------------------------- live 9:16 preview
 
+const LOGO_SPOTS: Record<string, { x: number; y: number }> = {
+  top_left: { x: 0, y: 0 },
+  top_center: { x: 0.5, y: 0 },
+  top_right: { x: 1, y: 0 },
+  middle_left: { x: 0, y: 0.5 },
+  center: { x: 0.5, y: 0.5 },
+  middle_right: { x: 1, y: 0.5 },
+  bottom_left: { x: 0, y: 1 },
+  bottom_center: { x: 0.5, y: 1 },
+  bottom_right: { x: 1, y: 1 },
+};
+
 function LivePreview({
   s,
   style,
@@ -258,27 +271,31 @@ function LivePreview({
           src={logo.url}
           alt=""
           className="absolute object-contain"
-          style={{
-            width: W * 0.16,
-            top: s.logo_position.startsWith("top") ? W * 0.034 : undefined,
-            bottom: s.logo_position.startsWith("bottom") ? W * 0.034 : undefined,
-            left: s.logo_position.endsWith("left") ? W * 0.034 : undefined,
-            right: s.logo_position.endsWith("right") ? W * 0.034 : undefined,
-          }}
+          style={(() => {
+            const m = W * 0.034;
+            const lw = W * 0.16;
+            const spot = s.logo_pos ?? LOGO_SPOTS[s.logo_position] ?? LOGO_SPOTS.top_right;
+            return { width: lw, left: m + (W - lw - 2 * m) * spot.x, top: m + (H - lw - 2 * m) * spot.y };
+          })()}
         />
       )}
       {style && (
         <CaptionOverlay
           chunks={chunks}
-          style={{ ...style, emphasis: s.keyword_emphasis }}
+          style={{ ...style, emphasis: s.keyword_emphasis, pos: s.caption_pos ?? null }}
           keywords={["captions", "every"]}
           t={t}
           width={W}
           enabled={s.captions}
           transition={s.caption_transition}
           effect={s.caption_effect}
-          overlays={s.hook_title ? [{ kind: "title", text: title || "Your hook title appears here", start: 0, end: 3 }] : []}
-          progressBar={s.progress_bar ? "#C6F432" : null}
+          overlays={
+            s.hook_title
+              ? [{ kind: "title", text: title || "Your hook title appears here", start: 0, end: 3, style: s.title_style ?? "impact", pos: s.title_pos ?? null }]
+              : []
+          }
+          progressBar={s.progress_bar ? "#FF7A59" : null}
+          progressPos={s.progress_position ?? "bottom"}
           duration={total}
         />
       )}
@@ -407,7 +424,9 @@ export function NewProject() {
   // --------------------------------------------------------------------------- step 1: import
   if (step === "import") {
     return (
-      <div className="mx-auto max-w-lg pt-10 sm:pt-20">
+      <div>
+      <PageHeader title="New project" subtitle="Paste a link or upload a video. The AI finds the moments worth posting." />
+      <div className="mx-auto max-w-lg rounded-2xl bg-surface p-6 shadow-card sm:p-8">
         <div className="mb-2 flex items-center justify-between">
           <label htmlFor="video-link" className="text-sm font-medium">
             {mode === "url" ? "Import from YouTube:" : "Upload a video:"}
@@ -530,6 +549,7 @@ export function NewProject() {
         </div>
         <p className="mt-10 text-center text-[11px] text-muted">Only import videos you own or have permission to use.</p>
       </div>
+      </div>
     );
   }
 
@@ -545,6 +565,7 @@ export function NewProject() {
 
   return (
     <div>
+      <PageHeader title="Customize your clips" subtitle={title || undefined} />
       <div className="mb-4 flex items-center justify-between">
         <button
           type="button"
@@ -557,7 +578,7 @@ export function NewProject() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
-        <div className="divide-y divide-border rounded-2xl border border-border bg-surface px-5">
+        <div className="divide-y divide-border rounded-2xl bg-surface px-5 shadow-card">
           <div className="pt-5">
             <h2 className="text-lg font-semibold">Customize your video</h2>
             {title && <p className="mt-0.5 truncate text-sm text-muted">{title}</p>}
@@ -570,26 +591,12 @@ export function NewProject() {
             <Section title="Size" info="Portrait 9:16 is the format for YouTube Shorts, Reels and TikTok.">
               <Select value={s.aspect} onChange={(v) => set("aspect", v as GenerateSettings["aspect"])} options={SIZES} />
             </Section>
-            <Section title="Clip duration" info="The longest a clip may be. Clips end on a complete sentence, so most land a little shorter.">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 items-center gap-1.5 rounded-xl border border-border px-3 text-sm">
-                  <span className="w-7 text-right font-medium">{s.max_dur}</span>
-                  <span className="text-muted">seconds</span>
-                </div>
-                <input
-                  type="range"
-                  min={15}
-                  max={180}
-                  step={5}
-                  value={s.max_dur}
-                  aria-label="Clip duration"
-                  onChange={(e) => {
-                    const v = Number(e.target.value);
-                    setS((x) => ({ ...x, max_dur: v, min_dur: Math.max(8, Math.round(v * 0.45)) }));
-                  }}
-                  className="flex-1"
-                />
-              </div>
+            <Section
+              title="Clip length"
+              info="Every clip lands inside this range: the AI adds the setup or trims to the payoff to hit it."
+              className="sm:col-span-2"
+            >
+              <LengthPicker s={s} onChange={(patch) => setS((x) => ({ ...x, ...patch }))} />
             </Section>
             <Section title="Number of clips">
               <div className="flex items-center gap-3">
@@ -660,6 +667,10 @@ export function NewProject() {
                 </Tile>
               ))}
             </div>
+            <div className="mt-4 text-xs text-muted">Caption position: pick a spot, then nudge it with the arrows</div>
+            <div className="mt-1.5">
+              <PositionPicker label="Caption position" value={s.caption_pos} onChange={(v) => set("caption_pos", v)} />
+            </div>
             <div className="mt-4 text-xs text-muted">Caption effects</div>
             <div className="mt-1.5 grid grid-cols-3 gap-2.5 rounded-xl bg-surface-2 p-2.5 sm:grid-cols-5">
               {(Object.entries(effects) as [Effect, string][]).map(([key, label]) => (
@@ -680,30 +691,60 @@ export function NewProject() {
           </Section>
 
           <Section title="Viral boosters" info="Common practices that help Shorts hold viewers to the end.">
-            <Switch checked={s.hook_title} onChange={(v) => set("hook_title", v)} label="Hook title for the first 3 seconds" hint="The clip's hook as on-screen text, so viewers know why to stay" />
-            <Switch checked={s.progress_bar} onChange={(v) => set("progress_bar", v)} label="Progress bar" hint="A thin bar along the bottom that fills as the clip plays" />
+            <Switch checked={s.hook_title} onChange={(v) => set("hook_title", v)} label="Hook title for the first 3 seconds" hint="A designed title card that pops in, so viewers know why to stay" />
+            {s.hook_title && (
+              <div className="mb-3 mt-2 space-y-3 rounded-xl bg-surface-2 p-3">
+                <TitleStylePicker value={s.title_style ?? "impact"} onChange={(v) => set("title_style", v)} bg={thumb} />
+                <div>
+                  <div className="mb-1.5 text-xs text-muted">Title position</div>
+                  <PositionPicker label="Title position" value={s.title_pos} onChange={(v) => set("title_pos", v)} />
+                </div>
+              </div>
+            )}
+            <Switch checked={s.progress_bar} onChange={(v) => set("progress_bar", v)} label="Progress bar" hint="A thin bar that fills as the clip plays" />
+            {s.progress_bar && (
+              <div className="mb-2 ml-1">
+                <Chips
+                  value={s.progress_position ?? "bottom"}
+                  onChange={(v) => set("progress_position", v)}
+                  options={[
+                    ["bottom", "Bottom edge"],
+                    ["top", "Top edge"],
+                  ]}
+                />
+              </div>
+            )}
             <Switch checked={s.silence_removal} onChange={(v) => set("silence_removal", v)} label="Remove silent pauses" hint="Tighter pacing: cuts gaps longer than 0.7 s" />
             <Switch
               checked={s.comparison}
               onChange={(v) => set("comparison", v)}
-              label="Comparison videos: both versions in one frame"
-              hint="For “A vs B” videos: split screens and alternating shots become stacked, labelled side-by-side clips"
+              label="Detect comparison videos (A vs B vs C)"
+              hint="Only used when the video really compares versions (same action in different games, years, products). Normal videos are never split."
             />
+            {s.comparison && (
+              <div className="mb-2 mt-2 space-y-3 rounded-xl bg-surface-2 p-3">
+                <div className="text-xs text-muted">How the versions play</div>
+                <ComparePlayPicker value={s.compare_play ?? "turns"} onChange={(v) => set("compare_play", v)} />
+                {s.compare_play === "together" && (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="text-xs text-muted">Sound</span>
+                    <Chips
+                      value={s.compare_audio ?? "active"}
+                      onChange={(v) => set("compare_audio", v)}
+                      options={[
+                        ["active", "Top video only"],
+                        ["mix", "Mix both"],
+                      ]}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </Section>
 
-          <Section title="Logo" info="Shown in a corner of every clip.">
+          <Section title="Logo" info="Shown on every clip; Auto puts it in the top-right corner.">
             <AssetBox kind="logo" asset={logo} onChange={setLogo}>
-              <Select
-                value={s.logo_position}
-                onChange={(v) => set("logo_position", v as GenerateSettings["logo_position"])}
-                options={[
-                  { value: "top_right", label: "Top right" },
-                  { value: "top_left", label: "Top left" },
-                  { value: "bottom_right", label: "Bottom right" },
-                  { value: "bottom_left", label: "Bottom left" },
-                ]}
-                className="h-8 max-w-48"
-              />
+              <PositionPicker label="Logo position" value={s.logo_pos} onChange={(v) => set("logo_pos", v)} />
             </AssetBox>
           </Section>
 
@@ -790,7 +831,7 @@ export function NewProject() {
         </div>
 
         <div className="lg:sticky lg:top-5 lg:self-start">
-          <div className="rounded-2xl border border-border bg-surface p-5">
+          <div className="rounded-2xl bg-surface p-5 shadow-card">
             <div className="mx-auto mb-1 w-fit rounded-xl bg-surface-2 p-1 text-sm font-medium">
               <span className="block rounded-lg bg-surface px-4 py-1 shadow-sm">Preview</span>
             </div>

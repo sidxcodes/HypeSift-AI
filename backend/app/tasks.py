@@ -19,6 +19,7 @@ from .models import Clip, Project, User
 from .pipeline import (
     compare,
     ffmpeg,
+    gemini,
     highlights,
     ingest,
     llm,
@@ -128,6 +129,7 @@ def prefs_from(settings: dict, overrides: dict | None = None) -> Prefs:
         instructions=(s.get("instructions") or "").strip(),
         pad_before=0.25 if pad else 0.0,
         pad_after=0.45 if pad else 0.05,
+        target_dur=float(s["target_dur"]) if s.get("target_dur") else None,
     )
 
 
@@ -141,9 +143,20 @@ def clip_keywords(c: highlights.Candidate, ctx: highlights.Context, k: int = 6) 
 def default_edits(settings: dict, brand: dict, title: str, keywords: list[str]) -> dict:
     style = dict(brand.get("caption_style") or {})
     style["emphasis"] = bool(settings.get("keyword_emphasis", True))
+    if settings.get("caption_pos"):
+        style["pos"] = settings["caption_pos"]
     overlays = []
     if settings.get("hook_title", True) and title:
-        overlays.append({"kind": "title", "text": title, "start": 0, "end": 3.2})
+        overlays.append(
+            {
+                "kind": "title",
+                "text": title,
+                "start": 0,
+                "end": 3.0,
+                "style": settings.get("title_style", "impact"),
+                "pos": settings.get("title_pos"),
+            }
+        )
     if brand.get("watermark"):
         overlays.append({"kind": "watermark", "text": brand["watermark"], "start": 0})
     return {
@@ -165,9 +178,17 @@ def default_edits(settings: dict, brand: dict, title: str, keywords: list[str]) 
             "start": bool(settings.get("zoom_start")),
             "key_phrases": bool(settings.get("zoom_key_phrases", True)),
         },
-        "logo": {"key": settings.get("logo_key"), "position": settings.get("logo_position", "top_right")},
+        "logo": {
+            "key": settings.get("logo_key"),
+            "position": settings.get("logo_position", "top_right"),
+            **({"x": settings["logo_pos"]["x"], "y": settings["logo_pos"]["y"]} if settings.get("logo_pos") else {}),
+        },
         "music": {"key": settings.get("music_key"), "volume": float(settings.get("music_volume", 0.16))},
-        "progress_bar": {"enabled": bool(settings.get("progress_bar")), "color": "#C6F432"},
+        "progress_bar": {
+            "enabled": bool(settings.get("progress_bar")),
+            "color": "#FF7A59",
+            "position": settings.get("progress_position", "bottom"),
+        },
     }
 
 
@@ -278,35 +299,40 @@ def _clip_from_candidate(
 
 
 def _comparison_clip(project: Project, x: dict, rank: int, brand: dict, src: Path, words) -> Clip:
-    """A stacked "A vs B" clip from compare.candidates()."""
-    top, bottom = x["top"], x["bottom"]
-    scene = compare.describe(src, (x["start"] + x["end"]) / 2)
-    title = f"{top} vs {bottom}" + (f": {scene}" if scene else "")
-    text = " ".join(w.w for w in words if x["start"] <= w.s < x["end"])
+    """A comparison clip: 2+ versions of the same moment stacked in one frame (see multicompare)."""
+    from .pipeline import multicompare
+
     settings = dict(project.settings)
-    edits = default_edits({**settings, "hook_title": False}, brand, title, [])
-    edits["crop"] = {**edits["crop"], "mode": x["mode"]}
+    play = settings.get("compare_play", "turns")
+    parts = multicompare.fit_parts(x["parts"], play, float(settings.get("max_dur", 60)) + 5)
+    labels = [pt.get("label") or chr(65 + i) for i, pt in enumerate(parts)]
+    scene = x.get("scene") or compare.describe(src, (parts[0]["start"] + parts[0]["end"]) / 2)
+    title = " vs ".join(labels) + (f": {scene}" if scene else "")
+    text = " ".join(w.w for w in words if parts[0]["start"] <= w.s < parts[0]["end"])
+    edits = default_edits(settings, brand, title, [])
+    edits["crop"] = {**edits["crop"], "mode": "multi"}
     edits["silence_removal"] = False
-    edits["labels"] = {"top": top, "bottom": bottom, "enabled": True}
-    if x["mode"] == "pair":
-        edits["pair"] = {"b_start": x["b_start"]}
-    else:
-        edits["compare"] = {"swap": bool(x.get("swap"))}
-    kind = "split screen" if x["mode"] == "compare" else "matching shots"
+    edits["labels"] = {"enabled": True}
+    edits["multi"] = {"parts": parts, "play": play, "audio": settings.get("compare_audio", "active")}
+    how = {
+        "turns": "take turns (the others pause, you hear only the one playing)",
+        "together": "play at the same time",
+        "grid_then_single": "show together first, then one by one full screen",
+    }.get(play, "")
     dims = {
-        "hook": 70.0,
+        "hook": 72.0,
         "context": 75.0,
-        "pacing": 60.0,
+        "pacing": 62.0,
         "novelty": 80.0,
         "emotion": 55.0,
-        "visual": 70.0,
+        "visual": 72.0,
         "relevance": 85.0,
     }
     return Clip(
         project_id=project.id,
         rank=rank,
-        start=round(x["start"], 3),
-        end=round(x["end"], 3),
+        start=round(parts[0]["start"], 3),
+        end=round(parts[0]["end"], 3),
         title=title[:250],
         hook=title,
         text=text or title,
@@ -314,7 +340,7 @@ def _comparison_clip(project: Project, x: dict, rank: int, brand: dict, src: Pat
         score=int(x["score"]),
         score_breakdown={"dims": dims, "engine": "comparison layout", "evidence": {}},
         reasons=[
-            f"{top} and {bottom} side by side ({kind}), playing at the same time",
+            f"{len(parts)} versions in one frame: {', '.join(labels)}; they {how}",
             "Comparisons invite comments: viewers pick a side",
         ],
         edits=edits,
@@ -382,6 +408,7 @@ def generate(ctx: JobContext) -> None:
         db.commit()
         settings, source_type, url = dict(p.settings), p.source_type, p.source_url
         brand = dict(db.get(User, p.user_id).brand_kit or {})
+    use_gemini = settings.get("use_llm", True) and gemini.provider() == "gemini"
     use_llm = settings.get("use_llm", True) and llm.status()["available"]
     scan = source_type == "url" and bool((p.media or {}).get("scan"))
     ctx.plan(
@@ -562,17 +589,50 @@ def generate(ctx: JobContext) -> None:
     prefs.barriers = [s["start"] for s in (p.media or {}).get("sections", [])[1:]]
     prefs.media_src = str(src)
     rank_words = load_rank_words(p.id) or tr.words
-    comp_cands = compare.candidates(comp, prefs.min_dur, prefs.max_dur, sig.motion)[: prefs.count] if comp else []
+    sections = bool((p.media or {}).get("sections"))
+    # Gemini (when set up) watches the video once: best moments + "is this a comparison?"
+    gres: dict = {"moments": None, "comparison": None}
+    if use_gemini:
+        gres = gemini.analyze_video(
+            sentences=highlights.build_sentences(rank_words),
+            duration=probe.duration,
+            prefs=prefs,
+            count=prefs.count,
+            src=src,
+            url=None if sections else url,
+            title=p.name,
+            work_dir=storage.path(pkey(p.id, "")),
+            cancelled=ctx.cancelled,
+            progress=lambda f, m=None: ctx.progress(0.05 + 0.6 * f, m),
+            want_comparison=bool(settings.get("comparison", True)) and not sections,
+        )
+    if gres["comparison"] is not None:  # Gemini's verdict beats the pixel heuristics
+        comp_cands = compare.from_gemini(gres["comparison"], comp, sig.cuts, prefs.min_dur, prefs.max_dur)
+    else:
+        comp_cands = compare.candidates(comp, prefs.min_dur, prefs.max_dur, sig.motion) if comp else []
+    comp_cands = comp_cands[: prefs.count]
     if comp_cands:
-        ctx.progress(0.2, f"Found a comparison video: making {len(comp_cands)} side-by-side clips")
+        ctx.progress(0.7, f"Found a comparison video: making {len(comp_cands)} comparison clips")
         prefs.count = max(0, prefs.count - len(comp_cands))
+    proposer = (lambda hc: gres["moments"]) if gres["moments"] else None
+
     cands, hctx = (
-        highlights.discover(rank_words, sig, prefs, bias, semantic=llm.semantic_rank if use_llm else None)
+        highlights.discover(
+            rank_words, sig, prefs, bias, semantic=llm.semantic_rank if use_llm else None, proposer=proposer
+        )
         if prefs.count and (rank_words or not comp_cands)
         else ([], None)
     )
+    engine = (
+        f"Gemini ({gemini.public_settings()['last_model']}, watched the video)"
+        if any(c.llm_note.startswith("Gemini") for c in cands)
+        else "signals + " + llm.engine_label()
+        if use_llm
+        else "signals (heuristic)"
+    )
     # speech clips must not repeat a comparison moment
-    cands = [c for c in cands if all(c.end <= x["start"] or c.start >= x["end"] for x in comp_cands)]
+    taken = [(pt["start"], pt["end"]) for x in comp_cands for pt in x.get("parts") or [x]]
+    cands = [c for c in cands if all(c.end <= a or c.start >= b for a, b in taken)]
     if not cands and not comp_cands:
         raise UserFacingError("No usable moments were found in this video.")
     with SessionLocal() as db:
@@ -593,8 +653,9 @@ def generate(ctx: JobContext) -> None:
             "words": len(tr.words),
             "speech": hctx.speech if hctx else bool(tr.words),
             "scene_cuts": len(sig.cuts),
-            "ranking_engine": "signals + " + llm.engine_label() if use_llm else "signals (heuristic)",
+            "ranking_engine": engine,
             "llm": llm.status(),
+            "gemini_error": gemini.public_settings()["last_error"] if use_gemini else "",
             "candidates_scored": "multi-signal",
             "signals": sig.to_json(),
         }
@@ -640,7 +701,17 @@ def discover(ctx: JobContext) -> None:
         bias = feedback_bias(db, ctx.user_id)
         prefs.barriers = [s["start"] for s in (db.get(Project, p.id).media or {}).get("sections", [])[1:]]
         prefs.media_src = str(source_path(db.get(Project, p.id)))
-    cands, hctx = highlights.discover(rank_words, sig, prefs, bias, semantic=llm.semantic_rank if use_llm else None)
+    proposer = None
+    if settings.get("use_llm", True) and gemini.provider() == "gemini":
+
+        def proposer(hc):  # "find more": judge from the transcript (saves the free video quota)
+            return gemini.find_moments(
+                sentences=hc.sentences, duration=sig.duration, prefs=hc.prefs, count=hc.prefs.count, title=p.name
+            )
+
+    cands, hctx = highlights.discover(
+        rank_words, sig, prefs, bias, semantic=llm.semantic_rank if use_llm else None, proposer=proposer
+    )
     fresh = []
     for c in cands:
         dup = any(highlights.overlap(c, highlights.Candidate(start=s, end=e, text=t)) > 0.6 for s, e, t in existing)

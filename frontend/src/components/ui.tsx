@@ -7,7 +7,7 @@ import { forwardRef, isValidElement } from "react";
 export const cx = clsx;
 
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "secondary" | "ghost" | "danger";
+  variant?: "primary" | "accent" | "secondary" | "ghost" | "danger" | "onHero";
   size?: "sm" | "md" | "lg";
   loading?: boolean;
 };
@@ -21,12 +21,14 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       ref={ref}
       disabled={disabled || loading}
       className={cx(
-        "inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-colors duration-150 select-none",
+        "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors duration-150 select-none",
         "disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap",
         size === "sm" && "h-8 px-3 text-sm",
         size === "md" && "h-10 px-4 text-sm",
         size === "lg" && "h-12 px-6 text-base",
         variant === "primary" && "bg-primary text-on-primary hover:bg-primary-hover shadow-sm",
+        variant === "accent" && "bg-accent text-white hover:bg-accent-hover shadow-[0_6px_18px_-6px_var(--accent)]",
+        variant === "onHero" && "border border-white/70 text-white hover:bg-white/10",
         variant === "secondary" && "bg-surface border border-border text-text hover:bg-surface-2",
         variant === "ghost" && "text-muted hover:text-text hover:bg-surface-2",
         variant === "danger" && "bg-surface border border-border text-danger hover:bg-surface-2",
@@ -41,7 +43,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 });
 
 export function Card({ className, ...rest }: React.HTMLAttributes<HTMLDivElement>) {
-  return <div className={cx("rounded-2xl border border-border bg-surface shadow-card", className)} {...rest} />;
+  return <div className={cx("rounded-2xl bg-surface shadow-card", className)} {...rest} />;
 }
 
 export function Badge({
@@ -58,7 +60,7 @@ export function Badge({
         tone === "success" && "bg-success/12 text-success",
         tone === "warning" && "bg-warning/12 text-warning",
         tone === "danger" && "bg-danger/12 text-danger",
-        tone === "accent" && "bg-accent/12 text-accent",
+        tone === "accent" && "bg-accent-soft text-accent",
         className,
       )}
       {...rest}
@@ -211,7 +213,7 @@ export function Segmented<T extends string>({
   className?: string;
 }) {
   return (
-    <div className={cx("inline-flex rounded-xl bg-surface-2 p-1 gap-1", className)} role="tablist">
+    <div className={cx("inline-flex flex-wrap gap-1.5", className)} role="tablist">
       {options.map((o) => (
         <button
           key={o.value}
@@ -220,8 +222,43 @@ export function Segmented<T extends string>({
           aria-selected={value === o.value}
           onClick={() => onChange(o.value)}
           className={cx(
-            "rounded-lg px-3 h-8 text-sm font-medium transition cursor-pointer inline-flex items-center gap-1.5",
-            value === o.value ? "bg-surface text-text shadow-sm" : "text-muted hover:text-text",
+            "rounded-full px-3.5 h-8 text-[13px] font-medium transition cursor-pointer inline-flex items-center gap-1.5 border",
+            value === o.value
+              ? "border-primary bg-primary text-on-primary"
+              : "border-border bg-surface text-muted hover:text-text hover:border-primary/40",
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Outlined pill filters on the navy band ("All · Debits · Credits"). */
+export function HeroChips<T extends string>({
+  value,
+  onChange,
+  options,
+  label = "Show only:",
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: React.ReactNode }[];
+  label?: string;
+}) {
+  return (
+    <div className="inline-flex flex-wrap items-center gap-2 rounded-xl bg-white/8 px-3 py-2">
+      <span className="text-xs text-white/75">{label}</span>
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          onClick={() => onChange(o.value)}
+          aria-pressed={value === o.value}
+          className={cx(
+            "h-8 rounded-full border px-4 text-xs font-medium transition cursor-pointer",
+            value === o.value ? "border-white bg-white/10 text-white" : "border-white/40 text-white/85 hover:border-white/80",
           )}
         >
           {o.label}

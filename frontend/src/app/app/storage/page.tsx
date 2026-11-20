@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/components/AppShell";
 import { HardDrive, Trash2, Video } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -24,11 +25,8 @@ export default function StoragePage() {
   };
 
   return (
-    <div className="max-w-3xl space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Storage</h1>
-        <p className="mt-1 text-sm text-muted">Everything is stored on this computer. Delete old projects to free space.</p>
-      </div>
+    <div className="space-y-5">
+      <PageHeader title="Storage" subtitle="Everything is stored on this computer. Delete old projects to free space." />
       {!u ? (
         <Skeleton className="h-64" />
       ) : (

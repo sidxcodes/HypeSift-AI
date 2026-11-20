@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/components/AppShell";
 import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -47,21 +48,20 @@ export default function CalendarPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Calendar</h1>
-          <p className="text-sm text-muted">Scheduled and posted clips. HypeSift reminds you when a post is due.</p>
-        </div>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="sm" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="Previous month">
+      <PageHeader
+        title="Calendar"
+        subtitle="Scheduled and posted clips. HypeSift reminds you when a post is due."
+        actions={
+        <div className="flex items-center gap-1 text-white">
+          <Button variant="onHero" size="sm" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))} aria-label="Previous month">
             <ChevronLeft className="size-4" />
           </Button>
           <div className="w-40 text-center font-medium">{month.toLocaleDateString(undefined, { month: "long", year: "numeric" })}</div>
-          <Button variant="ghost" size="sm" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} aria-label="Next month">
+          <Button variant="onHero" size="sm" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))} aria-label="Next month">
             <ChevronRight className="size-4" />
           </Button>
           <Button
-            variant="secondary"
+            variant="accent"
             size="sm"
             onClick={() => {
               const d = new Date();
@@ -71,7 +71,8 @@ export default function CalendarPage() {
             Today
           </Button>
         </div>
-      </div>
+        }
+      />
 
       {!posts ? (
         <Skeleton className="h-[520px]" />

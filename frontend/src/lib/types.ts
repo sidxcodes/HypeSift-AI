@@ -28,6 +28,7 @@ export type Job = {
 export type GenerateSettings = {
   count: number;
   min_dur: number;
+  target_dur?: number | null;
   max_dur: number;
   genre: string;
   mood: string;
@@ -44,11 +45,18 @@ export type GenerateSettings = {
   zoom_key_phrases: boolean;
   progress_bar: boolean;
   logo_key: string | null;
-  logo_position: "top_left" | "top_right" | "bottom_left" | "bottom_right";
+  logo_position: LogoSpot;
+  logo_pos?: Pos | null;
+  caption_pos?: Pos | null;
+  title_style?: TitleStyle;
+  title_pos?: Pos | null;
+  progress_position?: "top" | "bottom";
   music_key: string | null;
   music_volume: number;
   transcript_only: boolean;
   comparison: boolean;
+  compare_play?: ComparePlay;
+  compare_audio?: "active" | "a" | "mix";
   language: string;
   caption_language: "original" | "english";
   quality: "draft" | "standard" | "high";
@@ -64,6 +72,7 @@ export type Transition = "none" | "fade_up" | "fade_down" | "fade_left" | "fade_
 export type Effect = "none" | "glow" | "shadow3d" | "typewriter" | "tilt";
 
 export type CaptionStyle = {
+  pos?: Pos | null;
   label: string;
   font: string;
   size: number;
@@ -88,11 +97,15 @@ export type CaptionStyle = {
 };
 
 export type Chunk = { s: number; e: number; text: string; words: { w: string; s: number; e: number }[] };
-export type Overlay = { kind: "title" | "watermark"; text: string; start: number; end?: number; color?: string; bg?: string };
+export type Overlay = { kind: "title" | "watermark"; text: string; start: number; end?: number; color?: string; bg?: string
+  style?: TitleStyle;
+  pos?: Pos | null;
+};
 
 export type Edits = {
   aspect: "9:16" | "1:1" | "4:5" | "16:9";
-  crop: { mode: "auto" | "manual" | "center" | "split" | "fit" | "facecam" | "compare" | "pair"; x: number; y: number; zoom: number };
+  crop: { mode: "auto" | "manual" | "center" | "split" | "fit" | "facecam" | "compare" | "pair" | "multi"; x: number; y: number; zoom: number };
+  multi?: { parts: { start: number; end: number; label?: string; crop?: string }[]; play: ComparePlay; audio?: string };
   pair?: { b_start: number };
   compare?: { swap: boolean };
   labels?: { top?: string; bottom?: string; enabled?: boolean };
@@ -225,6 +238,7 @@ export type Meta = {
   tones: string[];
   aspects: string[];
   llm: { available: boolean; model: string; reason: string };
+  ai_provider?: "gemini" | "local";
   encoder: string;
   whisper_model: string;
   limits: { max_upload_mb: number; max_duration_minutes: number; max_clips: number };
@@ -263,4 +277,30 @@ export type StorageUsage = {
   total: number;
   disk_free: number;
   disk_total: number;
+};
+
+export type Pos = { x: number; y: number };
+export type TitleStyle = "impact" | "box" | "neon" | "minimal";
+export type ComparePlay = "turns" | "together" | "grid_then_single";
+export type LogoSpot =
+  | "top_left"
+  | "top_center"
+  | "top_right"
+  | "middle_left"
+  | "center"
+  | "middle_right"
+  | "bottom_left"
+  | "bottom_center"
+  | "bottom_right";
+
+export type AiSettings = {
+  provider: "gemini" | "local";
+  active: "gemini" | "local";
+  has_key: boolean;
+  key_hint: string;
+  model: string;
+  models: string[];
+  last_model: string;
+  last_error: string;
+  local: { available: boolean; model: string; reason: string };
 };

@@ -268,7 +268,7 @@ def _refine(c, row: dict, span: tuple[int, int], ctx, highlights) -> None:
         return
     start, end = highlights._padded(ctx, a, b)
     p = ctx.prefs
-    if not (max(4.0, p.min_dur * 0.6) <= end - start <= p.max_dur + 4):
+    if not (max(4.0, p.min_dur - 1.0) <= end - start <= p.max_dur + 2):  # the creator's length range is a promise
         return
     if any(start + 0.3 < x < end - 0.3 for x in getattr(p, "barriers", [])):
         return

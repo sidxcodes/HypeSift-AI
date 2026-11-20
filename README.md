@@ -31,6 +31,7 @@ Ollama. No paid APIs, no keys.
 | Video | FFmpeg (NVENC when available, libx264 fallback) · libass caption burn-in |
 | Speech | faster-whisper with word timestamps (CUDA → CPU fallback) |
 | Vision | OpenCV face + motion tracking, histogram scene-cut detection |
+| Moment finder | **Google Gemini** (optional, free tier, your own key): watches the video and reads the transcript, picks moments by transcript line at your chosen length, detects comparison videos. Falls back to the local editor automatically |
 | AI editor | Ollama + `qwen3.5:9b` (optional; falls back to `qwen3.5:4b` / `gemma3:4b`; titles and copy use the faster `qwen3.5:4b`): rates each clip, re-cuts it to the strongest opening line and payoff, ranks the best head to head, writes the copy |
 
 ## What works today
@@ -53,10 +54,24 @@ Ollama. No paid APIs, no keys.
 - **Any language:** non-English speech is translated to English for moment-picking, titles and copy;
   burned-in captions use the site's own captions in the spoken language (cleaner than a small speech model)
   or, if you choose, English.
-- **Comparison videos ("A vs B"):** split screens are re-stacked top/bottom, and alternating stretches of
-  A and B (told apart by the version badge) are paired so both play at once, like comparison Shorts. The local
-  vision model names each side from the title and writes the scene into the clip title; name labels on
-  each panel. Real run: "GTA 6 vs Cyberpunk 2077" → 6 labelled comparison clips in 4.5 min.
+- **Comparison videos (A vs B vs C):** 2+ versions of the same moment stacked in one frame, with three play
+  modes: **take turns** (one plays while the others hold a still frame; only the playing one is heard),
+  **play together** (one soundtrack, or mixed if you choose) and **all at once, then one by one** (all
+  versions in one frame, then each full screen). Hook title on the join, name badges (the playing one
+  highlighted). With Gemini on, it decides whether a video really is a comparison and finds each scenario
+  in every version (e.g. "opening a car door" in GTA IV, V and VI); without it, split screens (only when the
+  title says "vs"/"comparison" or the split covers 40%+ of the video) and badge-coloured alternating
+  stretches are used. Real run: "GTA 6 vs Cyberpunk 2077" → 3 take-turns clips of 42-49 s (45 s target).
+- **Pick the AI (Settings → AI model):** Google Gemini on the free tier (add a free key from Google AI Studio;
+  it watches a small 360p copy of the video or the YouTube link, then the copy is deleted) or the local model
+  only (private, offline). Gemini models are tried best first (Gemini 4 Hydrogen → 3.8 Flash → 2.5 Pro →
+  3.6 Flash → 2.5 Flash) and the local model takes over when the daily free limit runs out.
+- **Clip length you can trust:** pick ~30, ~45, ~60 or ~90 s (or a custom length): clips are grown to include
+  the setup or trimmed to the payoff so they land inside the range.
+- **Designed hook titles:** four title-card designs for the first 3 seconds (Impact pop with coloured key
+  words, Bold box, Neon glow, Minimal), animated in, at any position.
+- **Put things where you want them:** captions, the hook title and the logo each have a 3x3 position grid
+  plus arrow nudges (or Auto); the progress bar goes on the top or bottom edge. Per clip too (Layout & title).
 - **Sees quiet moments:** moments with little speech (gameplay, sport, music) are rated by the vision model
   looking at them, not only by audio and motion.
 - **Import → Customize → Generate:** paste a link, optionally add **custom instructions** ("find the

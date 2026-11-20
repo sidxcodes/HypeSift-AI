@@ -187,11 +187,20 @@ def analyze(src: Path, duration: float, title: str = "") -> dict | None:
     t = lambda i: round(i / FPS, 2)  # noqa: E731
     split = split_scores(frames) > 6.0
     split = _smooth_labels(split.astype(int), 5).astype(bool)
-    splits = [(t(a), t(b)) for a, b in _runs(split, int(3 * FPS))]
+    runs = _runs(split, int(3 * FPS))
+    titled = looks_like_comparison(title)
+    # Without "vs"/"comparison" in the title, a centre line alone isn't proof (door frames, a pole):
+    # it must divide the picture for a large part of the video. (Gemini, when set up, has the final say.)
+    if runs and not titled:
+        cover = sum(b - a for a, b in runs) / len(frames)
+        if cover < 0.4:
+            log.info("centre line ignored (only %.0f%% of the video)", cover * 100)
+            runs = []
+    splits = [(t(a), t(b)) for a, b in runs]
 
     blocks: list[tuple[float, float, int]] = []
     full = np.where(~split)[0]
-    if len(full) >= 20 and (looks_like_comparison(title) or splits):
+    if len(full) >= 20 and (titled or splits):
         box = badge_box(frames[full])
         if box:  # only frames where the badge is actually on screen (not transitions / end cards)
             y0, y1, x0, x1 = box
@@ -384,7 +393,18 @@ def candidates(comp: dict, min_dur: float, max_dur: float, motion: np.ndarray | 
                 used.update({i, j})
                 break
     for c in out:
-        dur = c["end"] - c["start"]
+        d = c["end"] - c["start"]
+        if c["mode"] == "compare":
+            sides = [("left", c["top"]), ("right", c["bottom"])]
+            if c.get("swap"):
+                sides = [("right", c["top"]), ("left", c["bottom"])]
+            c["parts"] = [{"start": c["start"], "end": c["end"], "crop": cr, "label": lab} for cr, lab in sides]
+        else:
+            c["parts"] = [
+                {"start": c["start"], "end": c["end"], "label": c["top"]},
+                {"start": c["b_start"], "end": c["b_start"] + d, "label": c["bottom"]},
+            ]
+        dur = d
         mo = 0.0
         if motion is not None and len(motion):
             a, b = int(c["start"] * 2), max(int(c["end"] * 2), int(c["start"] * 2) + 1)
@@ -392,5 +412,52 @@ def candidates(comp: dict, min_dur: float, max_dur: float, motion: np.ndarray | 
         sweet = 1.0 - min(1.0, abs(dur - 28) / 30)
         c["score"] = int(
             round(max(35, min(95, 55 + 15 * (mo - 1) + 15 * sweet + (5 if c["mode"] == "compare" else 0))))
+        )
+    return sorted(out, key=lambda c: -c["score"])
+
+
+def from_gemini(gc: dict, cv: dict | None, cuts: list[float], min_dur: float, max_dur: float) -> list[dict]:
+    """Comparison clips from Gemini's scenarios (2+ versions, any order). Split-screen scenarios use
+    the vision-detected split for the geometry."""
+    if not gc or not gc.get("is_comparison"):
+        return []
+
+    def snap(t: float) -> float:
+        near = [c for c in cuts if abs(c - t) <= 0.8]
+        return min(near, key=lambda c: abs(c - t)) if near else t
+
+    out = []
+    for sc in gc.get("scenarios", []):
+        parts = sc["parts"]
+        if gc.get("layout") == "split_screen":
+            if not (cv and cv.get("splits")):
+                continue
+            a, b = parts[0]["start"], min(parts[0]["end"], parts[0]["start"] + max_dur)
+            names = (gc.get("versions") or ["A", "B"])[:2] + ["A", "B"][len(gc.get("versions") or []) :]
+            parts = [
+                {"start": a, "end": b, "crop": "left", "label": names[0]},
+                {"start": a, "end": b, "crop": "right", "label": names[1]},
+            ]
+        else:
+            parts = [
+                {"start": snap(p["start"]), "end": snap(p["end"]), "label": p.get("label") or chr(65 + i)}
+                for i, p in enumerate(parts[:4])
+            ]
+            parts = [p for p in parts if p["end"] - p["start"] >= 1.0]
+        if len(parts) < 2:
+            continue
+        labels = [p["label"] for p in parts]
+        out.append(
+            {
+                "start": parts[0]["start"],
+                "end": parts[0]["end"],
+                "mode": "multi",
+                "parts": parts,
+                "top": labels[0],
+                "bottom": labels[-1],
+                "labels": labels,
+                "scene": sc.get("title") or "",
+                "score": int(round(max(40, min(98, sc.get("score", 75))))),
+            }
         )
     return sorted(out, key=lambda c: -c["score"])

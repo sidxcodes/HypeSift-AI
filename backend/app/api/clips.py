@@ -34,6 +34,7 @@ ALLOWED_EDIT_KEYS = {
     "pair",
     "compare",
     "labels",
+    "multi",
 }
 
 
@@ -124,6 +125,16 @@ def update(cid: str, body: ClipEditIn, user: User = Depends(current_user), db: S
                     for ch in cap["chunks"][:400]
                     if str(ch.get("text", "")).strip()
                 ]
+        if "multi" in new:  # comparison clips: only the play mode / sound can change, not the parts
+            ask = new["multi"] if isinstance(new["multi"], dict) else {}
+            cur = dict((c.edits or {}).get("multi") or {})
+            if not cur.get("parts"):
+                raise HTTPException(422, "This clip isn't a comparison.")
+            if ask.get("play") in ("turns", "together", "grid_then_single"):
+                cur["play"] = ask["play"]
+            if ask.get("audio") in ("active", "a", "mix"):
+                cur["audio"] = ask["audio"]
+            new["multi"] = cur
         if "crop" in new and isinstance(new["crop"], dict):
             new["crop_locked"] = True
         from .library import user_asset_key

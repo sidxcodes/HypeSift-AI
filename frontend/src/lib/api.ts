@@ -1,4 +1,4 @@
-import type { Asset, Clip, ClipDetail, GenerateSettings, Job, Meta, PostPlan, Project, StorageUsage, UrlInfo, User } from "./types";
+import type { AiSettings, Asset, Clip, ClipDetail, GenerateSettings, Job, Meta, PostPlan, Project, StorageUsage, UrlInfo, User } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -75,6 +75,10 @@ export const api = {
     req<Clip>(`/api/clips/${id}/post`, { method: "PUT", body: json(plan) }),
   posts: () => req<Clip[]>("/api/posts"),
   storage: () => req<StorageUsage>("/api/storage"),
+  ai: () => req<AiSettings>("/api/ai"),
+  saveAi: (body: { provider?: "gemini" | "local"; gemini_api_key?: string; gemini_model?: string }) =>
+    req<AiSettings>("/api/ai", { method: "PUT", body: json(body) }),
+  removeAiKey: () => req<AiSettings>("/api/ai/key", { method: "DELETE" }),
 
   assistant: (project_id: string, text: string, clip_id?: string) =>
     req<{ action: Record<string, unknown>; executed: boolean; message: string; jobs: Job[] }>("/api/assistant", {
@@ -124,8 +128,9 @@ export async function uploadFile(
 
 export const DEFAULT_SETTINGS: GenerateSettings = {
   count: 6,
-  min_dur: 20,
+  min_dur: 15,
   max_dur: 60,
+  target_dur: null,
   genre: "auto",
   mood: "any",
   position: "any",
@@ -146,6 +151,13 @@ export const DEFAULT_SETTINGS: GenerateSettings = {
   music_volume: 0.16,
   transcript_only: false,
   comparison: true,
+  compare_play: "turns",
+  compare_audio: "active",
+  title_style: "impact",
+  title_pos: null,
+  caption_pos: null,
+  logo_pos: null,
+  progress_position: "bottom",
   language: "auto",
   caption_language: "original",
   quality: "standard",

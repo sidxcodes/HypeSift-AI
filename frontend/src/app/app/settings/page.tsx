@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useSession } from "@/components/AppShell";
+import { AiModelCard } from "@/components/AiModelCard";
+import { PageHeader, useSession } from "@/components/AppShell";
 import { CaptionSample } from "@/components/CaptionPreview";
 import { useToast } from "@/components/toast";
 import { Button, Card, cx, Field, Input } from "@/components/ui";
@@ -35,8 +36,10 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="max-w-3xl space-y-6">
-      <h1 className="font-display text-2xl font-bold tracking-tight">Settings</h1>
+    <div>
+      <PageHeader title="Settings" subtitle="Your AI model, account and brand kit." />
+      <div className="max-w-4xl space-y-6">
+      <AiModelCard />
       <Card className="p-6">
         <h2 className="font-semibold">Account</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -88,11 +91,15 @@ export default function SettingsPage() {
           <ul className="mt-3 space-y-1.5 text-muted">
             <li>Speech-to-text: faster-whisper “{meta.whisper_model}” (runs locally)</li>
             <li>Video encoder: {meta.encoder}</li>
-            <li>AI editor: {meta.llm.available ? `${meta.llm.model} via Ollama (local, free)` : `offline — ${meta.llm.reason}`}</li>
+            <li>
+              Moment finder: {meta.ai_provider === "gemini" ? "Google Gemini (watches the video), local model as backup" : "local model"}
+            </li>
+            <li>Local AI editor: {meta.llm.available ? `${meta.llm.model} via Ollama (free)` : `offline: ${meta.llm.reason}`}</li>
             <li>Limits: {meta.limits.max_duration_minutes} min per video, {meta.limits.max_clips} clips per run</li>
           </ul>
         </Card>
       )}
+      </div>
     </div>
   );
 }

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -10,7 +13,7 @@ from ..config import get_settings
 from ..db import get_db
 from ..jobs import enqueue
 from ..models import Clip, Job, User
-from ..pipeline import assistant, captions, ffmpeg, llm, publish
+from ..pipeline import assistant, captions, ffmpeg, gemini, llm, publish
 from ..pipeline.genres import DIMENSIONS, GENRE_LABELS
 from ..schemas import AssistantIn
 from ..serializers import job_out
@@ -48,6 +51,7 @@ def meta():
         "tones": publish.TONES,
         "aspects": ["9:16", "1:1", "4:5", "16:9"],
         "llm": llm.status(),
+        "ai_provider": gemini.provider(),
         "encoder": enc,
         "whisper_model": s.whisper_model,
         "limits": {
@@ -56,6 +60,38 @@ def meta():
             "max_clips": s.max_clips,
         },
     }
+
+
+class AiSettingsIn(BaseModel):
+    provider: Literal["gemini", "local"] | None = None
+    gemini_api_key: str | None = Field(default=None, max_length=200)
+    gemini_model: str | None = Field(default=None, max_length=60)
+
+
+@router.get("/ai")
+def ai_settings(user: User = Depends(current_user)):
+    return {**gemini.public_settings(), "local": llm.status()}
+
+
+@router.put("/ai")
+def save_ai_settings(body: AiSettingsIn, user: User = Depends(current_user)):
+    key = (body.gemini_api_key or "").strip() or None
+    if key is not None:
+        ok, msg = gemini.test_key(key)
+        if not ok:
+            raise HTTPException(400, msg)
+    if body.gemini_model is not None and body.gemini_model not in ("auto", *gemini.MODELS):
+        raise HTTPException(400, "Unknown model.")
+    gemini.save_settings(provider=body.provider, gemini_api_key=key, gemini_model=body.gemini_model)
+    return {**gemini.public_settings(), "local": llm.status()}
+
+
+@router.delete("/ai/key")
+def delete_ai_key(user: User = Depends(current_user)):
+    s = gemini.load_settings()
+    s.pop("gemini_api_key", None)
+    gemini.SETTINGS_FILE.write_text(__import__("json").dumps(s), encoding="utf-8")
+    return {**gemini.public_settings(), "local": llm.status()}
 
 
 @router.get("/jobs")

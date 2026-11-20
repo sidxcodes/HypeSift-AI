@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/components/AppShell";
 import { Clapperboard } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -27,8 +28,7 @@ export default function LibraryPage() {
 
   return (
     <div>
-      <h1 className="font-display text-2xl font-bold tracking-tight">Clips & exports</h1>
-      <p className="mt-1 text-sm text-muted">Every clip across your projects — download, edit or grab its publishing copy.</p>
+      <PageHeader title="Clips & exports" subtitle="Every clip across your projects: download, edit or grab its publishing copy." />
       <Segmented
         className="mt-5"
         value={tab}

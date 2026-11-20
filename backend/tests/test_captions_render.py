@@ -35,7 +35,7 @@ def test_build_ass_karaoke_and_overlays():
     doc = captions.build_ass(1080, 1920, ch, style, [{"kind": "title", "text": "My Title", "start": 0, "end": 2}])
     assert "PlayResX: 1080" in doc and "Style: Cap,Poppins ExtraBold" in doc
     assert "\\kf" in doc
-    assert "My Title" in doc
+    assert "MY {" in doc and "TITLE" in doc  # impact design: upper case, key word coloured
 
 
 def test_style_overrides_and_size_scale():

@@ -169,6 +169,7 @@ class Prefs:
     media_src: str = ""
     pad_before: float = 0.25
     pad_after: float = 0.45
+    target_dur: float | None = None  # preferred length; defaults to the middle of min/max
 
 
 @dataclass
@@ -187,6 +188,7 @@ class Candidate:
     reasons: list[str] = field(default_factory=list)
     title: str = ""
     llm_note: str = ""
+    semantic_weight: float | None = None  # how much the AI score counts (Gemini > local model)
 
     @property
     def duration(self) -> float:
@@ -537,9 +539,9 @@ def score(c: Candidate, ctx: Context) -> Candidate:
         rel += min(qh * 8, 26) + 20 * cover - (14 if qh == 0 else 0)
         if hit_terms:
             ev["relevance"].append("Mentions what you asked for: " + ", ".join(hit_terms[:5]))
-    sweet_lo, sweet_hi = max(p.min_dur, 18), min(p.max_dur, 45)
-    if sweet_lo <= dur <= sweet_hi:
-        rel += 6
+    target = p.target_dur or (p.min_dur + p.max_dur) / 2
+    off = abs(dur - target) / max(1.0, p.max_dur - p.min_dur)
+    rel += 8 - min(16.0, off * 24)
 
     c.dims = {
         k: round(_clip(v), 1)
@@ -564,7 +566,7 @@ def finalize(c: Candidate, ctx: Context) -> Candidate:
     """Combine heuristic + optional semantic score; write human reasons."""
     if c.semantic is not None:
         # The LLM reads meaning (and the creator's instructions); give it more say when asked.
-        w = 0.5 if ctx.prefs.instructions else 0.4
+        w = c.semantic_weight if c.semantic_weight is not None else 0.5 if ctx.prefs.instructions else 0.4
         c.score = round(_clip((1 - w) * c.heuristic + w * c.semantic))
     else:
         c.score = round(c.heuristic)
@@ -622,12 +624,107 @@ def position_filter(cands: list[Candidate], position: str, duration: float) -> l
     return f or cands
 
 
+def fit_length(ctx: Context, i: int, j: int) -> tuple[int, int]:
+    """Grow/shrink a sentence range until its padded length is inside [min_dur, max_dur].
+    Grows forward first (keeps the hook, adds the payoff), then backward; shrinks from the end."""
+    p, n = ctx.prefs, len(ctx.sentences)
+    target = p.target_dur or (p.min_dur + p.max_dur) / 2
+
+    def dur(a: int, b: int) -> float:
+        s, e = _padded(ctx, a, b)
+        return e - s
+
+    while dur(i, j) < p.min_dur and (j + 1 < n or i > 0):
+        fwd = dur(i, j + 1) if j + 1 < n else None
+        back = dur(i - 1, j) if i > 0 else None
+        # take the side that lands closest to the target without overshooting the max
+        opts = [(abs(d - target), k) for k, d in (("f", fwd), ("b", back)) if d is not None and d <= p.max_dur + 1.5]
+        if not opts:
+            break
+        if min(opts)[1] == "f":
+            j += 1
+        else:
+            i -= 1
+    while dur(i, j) > p.max_dur + 1.5 and j > i:
+        j -= 1
+    return i, j
+
+
+def from_proposals(ctx: Context, proposals: list[dict]) -> list[Candidate]:
+    """Turn AI-picked moments (sentence ranges or times) into scored candidates of the right length."""
+    p = ctx.prefs
+    out: list[Candidate] = []
+    for pr in proposals:
+        if ctx.speech and "s0" in pr and ctx.sentences:
+            i, j = fit_length(ctx, int(pr["s0"]), min(int(pr["s1"]), len(ctx.sentences) - 1))
+            start, end = _padded(ctx, i, j)
+            c = Candidate(start=start, end=end, s0=i, s1=j)
+        elif "start" in pr:
+            s, e = _snap(ctx.signals, pr["start"]), _snap(ctx.signals, pr["end"])
+            if e - s < p.min_dur:
+                e = min(ctx.signals.duration, s + (p.target_dur or (p.min_dur + p.max_dur) / 2))
+            e = min(e, s + p.max_dur)
+            if ctx.speech and ctx.sentences:  # times on a speech video: snap to sentence bounds
+                i = min(range(len(ctx.sentences)), key=lambda k: abs(ctx.sentences[k].start - s))
+                j = min(range(len(ctx.sentences)), key=lambda k: abs(ctx.sentences[k].end - e))
+                i, j = fit_length(ctx, i, max(i, j))
+                s, e = _padded(ctx, i, j)
+                c = Candidate(start=s, end=e, s0=i, s1=j)
+            else:
+                c = Candidate(start=s, end=e)
+        else:
+            continue
+        if c.duration < max(4.0, p.min_dur * 0.6):
+            continue
+        if p.barriers and any(c.start + 0.3 < b < c.end - 0.3 for b in p.barriers):
+            continue
+        score(c, ctx)
+        c.semantic = float(pr.get("score", 60))
+        c.semantic_weight = 0.75
+        c.dims["semantic"] = c.semantic
+        if pr.get("title"):
+            c.title = pr["title"]
+        if pr.get("why"):
+            c.llm_note = "Gemini: " + pr["why"].rstrip(".") + "."
+        out.append(c)
+    return out
+
+
 def discover(
-    words: list[Word], signals: Signals, prefs: Prefs, weight_bias: dict[str, float] | None = None, semantic=None
+    words: list[Word],
+    signals: Signals,
+    prefs: Prefs,
+    weight_bias: dict[str, float] | None = None,
+    semantic=None,
+    proposer=None,
 ) -> tuple[list[Candidate], Context]:
     """Full ranking. ``semantic`` is an optional callable(list[Candidate], Context) that
-    fills ``semantic`` / ``title`` / ``llm_note`` on a shortlist."""
+    fills ``semantic`` / ``title`` / ``llm_note`` on a shortlist. ``proposer`` is an optional
+    callable(Context) -> list[dict] | None (Gemini): when it returns moments they lead the ranking
+    and the local semantic pass is skipped."""
     ctx = make_context(words, signals, prefs, weight_bias)
+    proposed: list[Candidate] = []
+    if proposer is not None:
+        try:
+            proposed = from_proposals(ctx, proposer(ctx) or [])
+        except Exception:  # noqa: BLE001
+            import logging
+
+            logging.getLogger("hypesift.highlights").exception("AI proposer failed; using the local pipeline")
+    if proposed:
+        proposed = position_filter(proposed, prefs.position, signals.duration)
+        final = [finalize(c, ctx) for c in proposed]
+        final = suppress(final, prefs.count)
+        if len(final) < prefs.count:  # top up from the signal ranking
+            extra = [finalize(score(c, ctx), ctx) for c in generate(ctx)]
+            extra = [
+                c
+                for c in extra
+                if not (prefs.barriers and any(c.start + 0.3 < b < c.end - 0.3 for b in prefs.barriers))
+            ]
+            final = suppress(final + [c for c in suppress(extra, prefs.count * 2)], prefs.count)
+        final.sort(key=lambda c: -c.score)
+        return final, ctx
     cands = [score(c, ctx) for c in generate(ctx)]
     if prefs.barriers:
         cands = [c for c in cands if not any(c.start + 0.3 < b < c.end - 0.3 for b in prefs.barriers)]

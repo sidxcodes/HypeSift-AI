@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/components/AppShell";
 import { Save } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "@/components/AppShell";
@@ -38,9 +39,9 @@ export default function SocialsPage() {
   };
 
   return (
-    <div className="max-w-2xl space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Social profiles</h1>
+    <div className="space-y-5">
+      <PageHeader title="Social profiles" />
+      <div className="max-w-2xl">
         <p className="mt-1 text-sm text-muted">
           Your handles appear in the post drawer, and the time zone is used for scheduling. HypeSift doesn&apos;t log in to
           your accounts: “Post now” opens each platform&apos;s own upload page with your video and text ready.

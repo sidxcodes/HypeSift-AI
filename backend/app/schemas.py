@@ -29,10 +29,24 @@ class LoginIn(BaseModel):
     password: str
 
 
+class Pos(BaseModel):
+    """A free on-screen position: fractions of the frame (0 = left/top, 1 = right/bottom)."""
+
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+
+
+LogoSpot = Literal[
+    "top_left", "top_center", "top_right", "middle_left", "center", "middle_right",
+    "bottom_left", "bottom_center", "bottom_right",
+]  # fmt: skip
+
+
 class GenerateSettings(BaseModel):
     count: int = Field(default=6, ge=1, le=20)
     min_dur: float = Field(default=20, ge=5, le=170)
     max_dur: float = Field(default=60, ge=8, le=180)
+    target_dur: float | None = Field(default=None, ge=8, le=180)  # aim for this length (None = middle)
     genre: Literal["auto", "podcast", "gaming", "education", "tutorial", "entertainment", "vlog", "review"] = "auto"
     mood: Literal["any", "funny", "emotional", "intense", "informative", "inspiring"] = "any"
     position: Literal["any", "start", "middle", "end"] = "any"
@@ -49,12 +63,21 @@ class GenerateSettings(BaseModel):
     zoom_key_phrases: bool = True
     progress_bar: bool = False
     logo_key: str | None = Field(default=None, max_length=200)
-    logo_position: Literal["top_left", "top_right", "bottom_left", "bottom_right"] = "top_right"
+    logo_position: LogoSpot = "top_right"
+    logo_pos: Pos | None = None  # custom spot (overrides logo_position)
+    caption_pos: Pos | None = None  # custom caption spot (overrides the style's position)
+    title_style: Literal["impact", "box", "neon", "minimal"] = "impact"
+    title_pos: Pos | None = None
+    progress_position: Literal["top", "bottom"] = "bottom"
     music_key: str | None = Field(default=None, max_length=200)
     music_volume: float = Field(default=0.16, ge=0.02, le=1.0)
     transcript_only: bool = False  # Transcript generator: stop after speech-to-text
     # "A vs B" videos: stack both versions in one vertical frame (split screens and alternating shots)
     comparison: bool = True
+    # how the versions play: take turns (the other one freezes, only its sound), both at once, or
+    # all in one frame first and then each one full screen
+    compare_play: Literal["turns", "together", "grid_then_single"] = "turns"
+    compare_audio: Literal["active", "a", "mix"] = "active"  # "together": whose sound plays
     language: str = Field(default="auto", max_length=8)
     # Captions for non-English speech: the spoken language, or an English translation
     caption_language: Literal["original", "english"] = "original"

@@ -33,12 +33,27 @@ DEFAULT_EDITS: dict[str, Any] = {
     "progress_bar": {"enabled": False, "color": "#C6F432"},
 }
 
+# named spots on a 3x3 grid, as (x, y) fractions of the free space; a custom {x, y} also works
 LOGO_POS = {
-    "top_left": "{m}:{m}",
-    "top_right": "W-w-{m}:{m}",
-    "bottom_left": "{m}:H-h-{m}",
-    "bottom_right": "W-w-{m}:H-h-{m}",
+    "top_left": (0.0, 0.0),
+    "top_center": (0.5, 0.0),
+    "top_right": (1.0, 0.0),
+    "middle_left": (0.0, 0.5),
+    "center": (0.5, 0.5),
+    "middle_right": (1.0, 0.5),
+    "bottom_left": (0.0, 1.0),
+    "bottom_center": (0.5, 1.0),
+    "bottom_right": (1.0, 1.0),
 }
+
+
+def logo_xy(logo: dict, m: int) -> str:
+    if logo.get("x") is not None and logo.get("y") is not None:
+        fx, fy = float(logo["x"]), float(logo["y"])
+    else:
+        fx, fy = LOGO_POS.get(logo.get("position") or "top_right", LOGO_POS["top_right"])
+    fx, fy = max(0.0, min(1.0, fx)), max(0.0, min(1.0, fy))
+    return f"{m}+(W-w-{2 * m})*{fx:.3f}:{m}+(H-h-{2 * m})*{fy:.3f}"
 
 
 def zoom_moments(chunks: list[dict], keywords: set[str], out_dur: float, limit: int = 6) -> list[float]:
@@ -299,6 +314,23 @@ def render(
     if end - start < 0.5:
         raise ffmpeg.MediaError("Clip is shorter than half a second.")
     W, H = output_size(edits["aspect"], edits["quality"])
+    if (edits.get("crop") or {}).get("mode") == "multi" and (edits.get("multi") or {}).get("parts"):
+        from . import multicompare
+
+        return multicompare.render(
+            src,
+            probe,
+            edits["multi"]["parts"],
+            edits,
+            words,
+            out_path,
+            work_dir,
+            W,
+            H,
+            keywords,
+            on_progress,
+            should_cancel,
+        )
     mode = (edits.get("crop") or {}).get("mode")
     b_start = (edits.get("pair") or {}).get("b_start")
     pair = mode == "pair" and b_start is not None
@@ -328,6 +360,7 @@ def render(
         progress_bar=pb.get("color") if pb.get("enabled") else None,
         seam=layout_seam(edits, rf),
         labels=(edits.get("labels") or {}) if mode in ("compare", "pair") else None,
+        progress_pos="top" if pb.get("position") == "top" else "bottom",
     )
     (work_dir / "captions.ass").write_text(ass, encoding="utf-8")
     srt = cap.build_srt(mapped, uppercase=bool(style and style.get("uppercase")))
@@ -374,7 +407,7 @@ def render(
         lw = int(W * max(0.06, min(0.4, float(logo.get("size") or 0.16)))) // 2 * 2
         op = max(0.1, min(1.0, float(logo.get("opacity") or 0.92)))
         m = int(36 * W / 1080)
-        pos = LOGO_POS.get(logo.get("position") or "top_right", LOGO_POS["top_right"]).format(m=m)
+        pos = logo_xy(logo, m)
         graph.append(f"[{logo_idx}:v]scale={lw}:-1,format=rgba,colorchannelmixer=aa={op:.2f}[lg]")
         graph.append(f"[vz][lg]overlay={pos}:format=auto[vl]")
         vlast, vf = "[vl]", []

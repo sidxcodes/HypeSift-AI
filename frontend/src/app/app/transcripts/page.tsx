@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/components/AppShell";
 import { Copy, Download, FileText, Loader2, Search, Upload } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/toast";
@@ -89,10 +90,7 @@ export default function TranscriptsPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Transcript generator</h1>
-        <p className="mt-1 text-sm text-muted">Turn any video or YouTube link into a timestamped transcript, on your own computer.</p>
-      </div>
+      <PageHeader title="Transcript generator" subtitle="Turn any video or YouTube link into a timestamped transcript, on your own computer." />
 
       <div className="flex flex-wrap gap-2 rounded-2xl border border-border p-4">
         <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Paste a YouTube or video link" className="min-w-64 flex-1" aria-label="Video link" />

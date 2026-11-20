@@ -1,6 +1,6 @@
 "use client";
 
-import type { CaptionStyle, Chunk, Effect, Overlay, Transition } from "@/lib/types";
+import type { CaptionStyle, Chunk, Effect, Overlay, Pos, TitleStyle, Transition } from "@/lib/types";
 
 // libass sizes text by the font's (winAscent + winDescent); CSS sizes by the em box.
 // Dividing by this ratio makes the browser preview match the burned-in export.
@@ -65,6 +65,129 @@ export function textStyle(style: CaptionStyle, scale: number, effect: Effect = "
   };
 }
 
+const ACCENTS = ["#FFD60A", "#FF3B30", "#34C759", "#3FA9FF"];
+const STOP = new Set(
+  "a an the and or but so to of in on at for with is are was were be been it its this that i you he she we they my your our their me him her us them do does did have has had not no just very really what how why when who where which than then there here about from into over out up down as by if".split(" "),
+);
+
+/** Which words the impact title colours: numbers and long words (mirrors captions.py _key_words). */
+function keyIdx(words: string[]): Set<number> {
+  const clean = words.map((w) => w.toLowerCase().replace(/[^a-z0-9$%]/g, ""));
+  const pick = new Set(clean.flatMap((c, i) => (c && /\d/.test(c) && !STOP.has(c) ? [i] : [])));
+  const rest = clean
+    .map((c, i) => [c, i] as const)
+    .filter(([c, i]) => c && !STOP.has(c) && !pick.has(i))
+    .sort((a, b) => b[0].length - a[0].length);
+  for (const [, i] of rest) {
+    if (pick.size >= 2) break;
+    pick.add(i);
+  }
+  return new Set([...pick].sort((a, b) => a - b).slice(0, 3));
+}
+
+/** Anchor a free {x,y} like the renderer: left/right thirds hug that edge. */
+export function posStyle(pos: Pos, margin: number): React.CSSProperties {
+  const x = pos.x * 100;
+  const y = `${pos.y * 100}%`;
+  if (pos.x < 0.38) return { left: `max(${margin}px, ${x}%)`, top: y, transform: "translateY(-50%)", textAlign: "left" };
+  if (pos.x > 0.62) return { right: `max(${margin}px, ${100 - x}%)`, top: y, transform: "translateY(-50%)", textAlign: "right" };
+  return { left: `${x}%`, top: y, transform: "translate(-50%, -50%)", textAlign: "center" };
+}
+
+/** The hook title card, drawn like the export (impact / box / neon / minimal). */
+export function TitleCard({ text, design = "impact", scale, age = 1, accent }: { text: string; design?: TitleStyle; scale: number; age?: number; accent?: string }) {
+  const pop = Math.min(1, age / 0.3);
+  if (design === "impact") {
+    const words = text.toUpperCase().split(/\s+/);
+    const keys = keyIdx(words);
+    let ci = 0;
+    const s = age < 0.17 ? 1.22 * (age / 0.17) : age < 0.3 ? 1.22 - 0.22 * ((age - 0.17) / 0.13) : 1;
+    return (
+      <span
+        style={{
+          fontFamily: '"HS Luckiest Guy", sans-serif',
+          fontSize: (104 * scale) / 1.226,
+          lineHeight: 1.05,
+          color: "#fff",
+          WebkitTextStroke: `${22 * scale}px #000`,
+          paintOrder: "stroke fill",
+          textShadow: `${5 * scale}px ${5 * scale}px 0 #000`,
+          display: "inline-block",
+          transform: `scale(${s}) rotate(${-2 * (1 - pop)}deg)`,
+          maxWidth: 820 * scale,
+        }}
+      >
+        {words.map((w, i) => (
+          <span key={i} style={{ color: keys.has(i) ? (accent ? [accent, ...ACCENTS] : ACCENTS)[ci++ % 4] : undefined }}>
+            {w}
+            {i < words.length - 1 ? " " : ""}
+          </span>
+        ))}
+      </span>
+    );
+  }
+  if (design === "box") {
+    return (
+      <span
+        style={{
+          fontFamily: '"HS Archivo Black", sans-serif',
+          fontSize: (76 * scale) / 1.347,
+          lineHeight: 1.3,
+          color: "#101010",
+          background: accent ?? "#FFD60A",
+          padding: `${10 * scale}px ${22 * scale}px`,
+          textTransform: "uppercase",
+          display: "inline-block",
+          boxShadow: `${8 * scale}px ${8 * scale}px 0 rgba(0,0,0,.4)`,
+          transform: `rotate(${-2}deg) scale(${age < 0.14 ? 1.6 - 0.64 * (age / 0.14) : 1})`,
+          opacity: Math.min(1, age / 0.14),
+          maxWidth: 860 * scale,
+        }}
+      >
+        {text}
+      </span>
+    );
+  }
+  if (design === "neon") {
+    const c = accent ?? "#3FA9FF";
+    const flick = age < 0.06 || (age > 0.06 && age < 0.11) ? 0.4 : 1;
+    return (
+      <span
+        style={{
+          fontFamily: '"HS Poppins ExtraBold", sans-serif',
+          fontSize: (100 * scale) / 1.762,
+          lineHeight: 1.15,
+          color: "#fff",
+          textTransform: "uppercase",
+          textShadow: `0 0 ${8 * scale}px ${c}, 0 0 ${22 * scale}px ${c}, 0 0 ${44 * scale}px ${c}`,
+          opacity: flick,
+          display: "inline-block",
+          maxWidth: 860 * scale,
+        }}
+      >
+        {text}
+      </span>
+    );
+  }
+  return (
+    <span
+      style={{
+        fontFamily: '"HS Poppins ExtraBold", sans-serif',
+        fontSize: (92 * scale) / 1.762,
+        lineHeight: 1.3,
+        color: "#fff",
+        background: "rgba(0,0,0,.69)",
+        padding: `${8 * scale}px ${20 * scale}px`,
+        display: "inline-block",
+        opacity: Math.min(1, age / 0.25),
+        maxWidth: 860 * scale,
+      }}
+    >
+      {text}
+    </span>
+  );
+}
+
 /** Static sample for the style picker ("Hey there," with the active word highlighted). */
 export function CaptionSample({ style, scale = 0.24, effect = "none" }: { style: CaptionStyle; scale?: number; effect?: Effect }) {
   const words = ["Hey", "there,"];
@@ -95,6 +218,7 @@ export function CaptionOverlay({
   duration,
   seam,
   labels,
+  progressPos = "bottom",
 }: {
   chunks: Chunk[];
   style: CaptionStyle;
@@ -109,6 +233,7 @@ export function CaptionOverlay({
   duration?: number;
   seam?: number | null;
   labels?: { top?: string; bottom?: string; enabled?: boolean } | null;
+  progressPos?: "top" | "bottom";
 }) {
   const scale = width / 1080;
   const chunk = enabled ? chunks.find((c) => t >= c.s && t < Math.max(c.e, c.s + 0.2)) : undefined;
@@ -180,25 +305,11 @@ export function CaptionOverlay({
           ) : null,
         )}
       {progressBar && duration ? (
-        <div className="absolute bottom-0 left-0" style={{ height: Math.max(3, 10 * scale), width: `${Math.min(100, (t / duration) * 100)}%`, background: progressBar }} />
+        <div className={progressPos === "top" ? "absolute top-0 left-0" : "absolute bottom-0 left-0"} style={{ height: Math.max(3, 10 * scale), width: `${Math.min(100, (t / duration) * 100)}%`, background: progressBar }} />
       ) : null}
       {titleOv.map((o, i) => (
-        <div key={i} className="absolute inset-x-0 flex justify-center" style={{ top: "7%", padding: `0 ${80 * scale}px` }}>
-          <span
-            style={{
-              fontFamily: '"HS Poppins ExtraBold", sans-serif',
-              fontSize: (64 * scale) / 1.762,
-              color: o.color ?? "#0B0F14",
-              background: o.bg ?? "#C6F432",
-              padding: `${6 * scale}px ${16 * scale}px`,
-              lineHeight: 1.25,
-              textAlign: "center",
-              boxDecorationBreak: "clone",
-              WebkitBoxDecorationBreak: "clone",
-            }}
-          >
-            {o.text}
-          </span>
+        <div key={i} className="absolute" style={posStyle(o.pos ?? { x: 0.5, y: seam ?? 0.2 }, 50 * scale)}>
+          <TitleCard text={o.text} design={o.style ?? "impact"} scale={scale} age={t - (o.start ?? 0)} />
         </div>
       ))}
       {marks.map((o, i) => (
@@ -218,7 +329,14 @@ export function CaptionOverlay({
           {o.text}
         </div>
       ))}
-      {content && (
+      {content && style.pos && (
+        <div className="absolute" style={{ ...posStyle(style.pos, 56 * scale), maxWidth: "88%" }}>
+          <span key={chunkIndex} style={{ ...ts, display: "inline-block" }}>
+            {content}
+          </span>
+        </div>
+      )}
+      {content && !style.pos && (
         <div
           className="absolute inset-x-0 flex justify-center text-center"
           style={{

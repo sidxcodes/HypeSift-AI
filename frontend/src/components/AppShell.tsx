@@ -3,16 +3,17 @@
 import {
   CalendarDays,
   Clapperboard,
-  ExternalLink,
   FileText,
   FolderOpen,
+  Gauge,
   HardDrive,
   LifeBuoy,
-  LogOut,
   Menu,
+  Plus,
+  Power,
   Settings,
   Share2,
-  Upload,
+  Sparkles,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -20,11 +21,11 @@ import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import type { Meta, User } from "@/lib/types";
-import { Logo, ThemeToggle } from "./brand";
+import { LogoMark, ThemeToggle } from "./brand";
 import { DueReminder } from "./DueReminder";
-import { Button, cx, Skeleton } from "./ui";
+import { cx, Skeleton } from "./ui";
 
-type Session = { user: User; setUser: (u: User) => void; meta: Meta | null };
+type Session = { user: User; setUser: (u: User) => void; meta: Meta | null; refreshMeta: () => void };
 const SessionCtx = createContext<Session | null>(null);
 
 export function useSession(): Session {
@@ -33,37 +34,98 @@ export function useSession(): Session {
   return s;
 }
 
-const NAV: { section: string; items: { href: string; label: string; icon: typeof FolderOpen; exact?: boolean }[] }[] = [
-  {
-    section: "Content",
-    items: [
-      { href: "/app/projects", label: "Projects", icon: FolderOpen },
-      { href: "/app/library", label: "All clips", icon: Clapperboard },
-      { href: "/app/calendar", label: "Calendar", icon: CalendarDays },
-    ],
-  },
-  {
-    section: "Manage",
-    items: [
-      { href: "/app/socials", label: "Social profiles", icon: Share2 },
-      { href: "/app/storage", label: "Storage", icon: HardDrive },
-    ],
-  },
-  { section: "Tools", items: [{ href: "/app/transcripts", label: "Transcript generator", icon: FileText }] },
+const NAV: { href: string; label: string; icon: typeof FolderOpen }[] = [
+  { href: "/app/projects", label: "Projects", icon: Gauge },
+  { href: "/app/new", label: "New project", icon: Plus },
+  { href: "/app/library", label: "All clips", icon: Clapperboard },
+  { href: "/app/calendar", label: "Calendar", icon: CalendarDays },
+  { href: "/app/socials", label: "Social profiles", icon: Share2 },
+  { href: "/app/storage", label: "Storage", icon: HardDrive },
+  { href: "/app/transcripts", label: "Transcript generator", icon: FileText },
+  { href: "/app/settings", label: "Settings & AI model", icon: Settings },
 ];
 
-function NavLink({ href, label, icon: Icon, active }: { href: string; label: string; icon: typeof FolderOpen; active: boolean }) {
+function RailLink({ href, label, icon: Icon, active }: { href: string; label: string; icon: typeof FolderOpen; active: boolean }) {
+  return (
+    <Link
+      href={href}
+      title={label}
+      aria-label={label}
+      aria-current={active ? "page" : undefined}
+      className={cx(
+        "group relative grid size-11 place-items-center rounded-xl transition",
+        active ? "bg-primary text-on-primary shadow-[0_8px_18px_-8px_var(--primary)]" : "text-muted hover:bg-primary-soft hover:text-primary",
+      )}
+    >
+      <Icon className="size-[19px]" strokeWidth={1.8} />
+      <span className="pointer-events-none absolute left-full z-50 ml-3 whitespace-nowrap rounded-lg bg-text px-2.5 py-1 text-xs font-medium text-surface opacity-0 shadow-lg transition group-hover:opacity-100">
+        {label}
+      </span>
+    </Link>
+  );
+}
+
+function MobileLink({ href, label, icon: Icon, active }: { href: string; label: string; icon: typeof FolderOpen; active: boolean }) {
   return (
     <Link
       href={href}
       className={cx(
-        "flex items-center gap-2.5 rounded-lg px-2.5 h-8 text-[13.5px] transition",
-        active ? "bg-surface-2 font-medium text-text" : "text-text/80 hover:bg-surface-2 hover:text-text",
+        "flex h-11 items-center gap-3 rounded-xl px-3 text-sm transition",
+        active ? "bg-primary text-on-primary" : "text-text hover:bg-primary-soft",
       )}
     >
-      <Icon className="size-4 text-muted" />
+      <Icon className="size-[18px]" strokeWidth={1.8} />
       {label}
     </Link>
+  );
+}
+
+/** The navy band at the top of every page (reference: "My Personal Wallet" header). */
+export function PageHeader({
+  title,
+  subtitle,
+  actions,
+  children,
+}: {
+  title: React.ReactNode;
+  subtitle?: React.ReactNode;
+  actions?: React.ReactNode;
+  children?: React.ReactNode;
+}) {
+  const s = useContext(SessionCtx);
+  const user = s?.user;
+  const ai = s?.meta;
+  return (
+    <div className="hero-band -mx-4 -mt-5 mb-7 rounded-b-[32px] px-5 pb-8 pt-5 sm:-mx-6 sm:px-8 lg:-mx-10 lg:px-10">
+      <div className="mb-5 hidden items-center justify-end gap-3 lg:flex">
+        {ai && (
+          <Link
+            href="/app/settings"
+            className="inline-flex h-8 items-center gap-2 rounded-full bg-white/10 px-3 text-xs text-white/90 hover:bg-white/15"
+            title="Which AI picks your moments"
+          >
+            <Sparkles className="size-3.5" />
+            {ai.ai_provider === "gemini" ? "AI: Gemini (watches video)" : ai.llm.available ? `AI: local · ${ai.llm.model}` : "AI: offline"}
+          </Link>
+        )}
+        {user && (
+          <div className="flex items-center gap-2.5">
+            <div className="grid size-10 place-items-center rounded-full border-2 border-white/80 bg-accent text-sm font-semibold text-white">
+              {(user.name || user.email).slice(0, 1).toUpperCase()}
+            </div>
+            <span className="text-[15px] text-white">{user.name || "My studio"}</span>
+          </div>
+        )}
+      </div>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-white sm:text-[30px]">{title}</h1>
+          {subtitle && <p className="mt-1 text-sm text-white/70">{subtitle}</p>}
+        </div>
+        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      </div>
+      {children && <div className="mt-6">{children}</div>}
+    </div>
   );
 }
 
@@ -74,6 +136,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [meta, setMeta] = useState<Meta | null>(null);
   const [open, setOpen] = useState(false);
 
+  const refreshMeta = () => api.meta().then(setMeta).catch(() => {});
   useEffect(() => {
     api
       .me()
@@ -81,7 +144,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       .catch((e) => {
         if (e instanceof ApiError && e.status === 401) router.replace(`/login?next=${encodeURIComponent(path)}`);
       });
-    api.meta().then(setMeta).catch(() => {});
+    refreshMeta();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -90,12 +153,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (!user) {
     return (
       <div className="flex min-h-screen">
-        <div className="hidden w-64 border-r border-border p-4 lg:block">
-          <Skeleton className="h-8 w-36" />
-        </div>
-        <div className="flex-1 p-8 space-y-4">
-          <Skeleton className="h-8 w-64" />
-          <Skeleton className="h-40 w-full" />
+        <div className="hidden w-[92px] bg-surface lg:block" />
+        <div className="flex-1">
+          <div className="hero-band h-48 rounded-b-[32px]" />
+          <div className="space-y-4 p-8">
+            <Skeleton className="h-40 w-full" />
+          </div>
         </div>
       </div>
     );
@@ -105,100 +168,89 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     await api.logout().catch(() => {});
     router.replace("/login");
   };
-
-  const sidebar = (
-    <div className="flex h-full flex-col">
-      <div className="flex h-14 items-center justify-between px-4">
-        <Logo href="/app/projects" />
-        <div className="flex items-center">
-          <ThemeToggle />
-          <button className="lg:hidden p-2 text-muted" onClick={() => setOpen(false)} aria-label="Close menu">
-            <X className="size-5" />
-          </button>
-        </div>
-      </div>
-      <div className="px-3 pb-2">
-        <Link href="/app/new">
-          <Button className="w-full">
-            <Upload className="size-4" /> Upload a video
-          </Button>
-        </Link>
-      </div>
-      <nav className="flex-1 overflow-y-auto px-3 py-2">
-        {NAV.map((g) => (
-          <div key={g.section} className="mb-4">
-            <div className="px-2.5 pb-1 text-xs text-muted">{g.section}</div>
-            <div className="space-y-0.5">
-              {g.items.map((n) => (
-                <NavLink key={n.href} {...n} active={n.exact ? path === n.href : path.startsWith(n.href)} />
-              ))}
-            </div>
-          </div>
-        ))}
-      </nav>
-      <div className="px-3 pb-2 space-y-0.5">
-        <NavLink href="/app/settings" label="Settings" icon={Settings} active={path.startsWith("/app/settings")} />
-        <a
-          href="https://github.com/sidxcodes/HypeSift-AI#readme"
-          target="_blank"
-          rel="noopener"
-          className="flex items-center gap-2.5 rounded-lg px-2.5 h-8 text-[13.5px] text-text/80 hover:bg-surface-2"
-        >
-          <LifeBuoy className="size-4 text-muted" /> Help <ExternalLink className="ml-auto size-3.5 text-muted" />
-        </a>
-        {meta && (
-          <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-muted" title={meta.llm.reason || undefined}>
-            <span className={cx("size-2 rounded-full", meta.llm.available ? "bg-success" : "bg-warning")} />
-            {meta.llm.available ? `AI editor on · ${meta.llm.model}` : "AI editor offline"}
-          </div>
-        )}
-      </div>
-      <div className="border-t border-border p-3">
-        <div className="flex items-center gap-2.5">
-          <div className="grid size-8 shrink-0 place-items-center rounded-full bg-primary text-sm font-semibold text-on-primary">
-            {(user.name || user.email).slice(0, 1).toUpperCase()}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium">{user.name || "My studio"}</div>
-            <div className="truncate text-xs text-muted">{user.email}</div>
-          </div>
-          <button
-            onClick={logout}
-            className="grid size-8 place-items-center rounded-lg text-muted hover:text-text hover:bg-surface-2 cursor-pointer"
-            aria-label="Sign out"
-          >
-            <LogOut className="size-4" />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  const isActive = (href: string) => (href === "/app/projects" ? path.startsWith("/app/projects") : path.startsWith(href));
 
   return (
-    <SessionCtx.Provider value={{ user, setUser, meta }}>
+    <SessionCtx.Provider value={{ user, setUser, meta, refreshMeta }}>
       <div className="flex min-h-screen">
-        <aside className="sticky top-0 hidden h-screen w-60 shrink-0 border-r border-border bg-surface lg:block">{sidebar}</aside>
+        {/* icon rail (desktop) */}
+        <aside className="sticky top-0 hidden h-screen w-[92px] shrink-0 flex-col items-center bg-surface py-5 shadow-[1px_0_0_var(--border)] lg:flex">
+          <Link href="/app/projects" aria-label="HypeSift AI home" className="mb-7">
+            <LogoMark className="size-11" />
+          </Link>
+          <nav className="flex flex-1 flex-col items-center gap-2.5">
+            {NAV.map((n) => (
+              <RailLink key={n.href} {...n} active={isActive(n.href)} />
+            ))}
+          </nav>
+          <div className="flex flex-col items-center gap-2">
+            <a
+              href="https://github.com/sidxcodes/HypeSift-AI#readme"
+              target="_blank"
+              rel="noopener"
+              title="Help"
+              aria-label="Help"
+              className="grid size-11 place-items-center rounded-xl text-muted hover:bg-primary-soft hover:text-primary"
+            >
+              <LifeBuoy className="size-[19px]" strokeWidth={1.8} />
+            </a>
+            <ThemeToggle />
+            <button
+              onClick={logout}
+              title="Sign out"
+              aria-label="Sign out"
+              className="grid size-11 place-items-center rounded-xl text-text hover:bg-primary-soft cursor-pointer"
+            >
+              <Power className="size-[19px]" strokeWidth={1.8} />
+            </button>
+          </div>
+        </aside>
+
+        {/* mobile drawer */}
         {open && (
           <div className="fixed inset-0 z-50 lg:hidden">
             <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
-            <aside className="absolute inset-y-0 left-0 w-72 bg-surface shadow-xl">{sidebar}</aside>
+            <aside className="absolute inset-y-0 left-0 flex w-72 flex-col bg-surface p-4 shadow-xl">
+              <div className="mb-4 flex items-center justify-between">
+                <span className="flex items-center gap-2 font-semibold">
+                  <LogoMark className="size-9" /> HypeSift <span className="text-accent">AI</span>
+                </span>
+                <button className="p-2 text-muted" onClick={() => setOpen(false)} aria-label="Close menu">
+                  <X className="size-5" />
+                </button>
+              </div>
+              <nav className="flex-1 space-y-1">
+                {NAV.map((n) => (
+                  <MobileLink key={n.href} {...n} active={isActive(n.href)} />
+                ))}
+              </nav>
+              <div className="flex items-center justify-between border-t border-border pt-3">
+                <ThemeToggle />
+                <button onClick={logout} className="flex items-center gap-2 text-sm text-muted cursor-pointer">
+                  <Power className="size-4" /> Sign out
+                </button>
+              </div>
+            </aside>
           </div>
         )}
+
         <div className="min-w-0 flex-1">
-          <div className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-bg/85 px-4 backdrop-blur lg:hidden">
-            <button onClick={() => setOpen(true)} className="p-2 -ml-2 text-muted" aria-label="Open menu">
+          <div className="hero-band sticky top-0 z-30 flex h-14 items-center justify-between px-4 lg:hidden">
+            <button onClick={() => setOpen(true)} className="-ml-2 p-2 text-white" aria-label="Open menu">
               <Menu className="size-5" />
             </button>
-            <Logo href="/app/projects" />
-            <Link href="/app/new">
-              <Button size="sm" aria-label="Upload a video">
-                <Upload className="size-4" />
-              </Button>
+            <Link href="/app/projects" className="flex items-center gap-2 font-semibold text-white">
+              <LogoMark className="size-8" /> HypeSift
+            </Link>
+            <Link href="/app/new" aria-label="New project" className="grid size-9 place-items-center rounded-lg bg-accent text-white">
+              <Plus className="size-4" />
             </Link>
           </div>
-          <main className="mx-auto max-w-6xl px-4 py-5 sm:px-6 lg:px-8">
-            <DueReminder />
+          <main className="px-4 py-5 sm:px-6 lg:px-10">
             {children}
+            <div className="fixed bottom-4 right-4 z-40 w-[min(380px,calc(100vw-2rem))] [&:empty]:hidden">
+              <DueReminder />
+            </div>
           </main>
         </div>
       </div>
