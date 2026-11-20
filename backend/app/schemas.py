@@ -80,7 +80,7 @@ class GenerateSettings(BaseModel):
     compare_audio: Literal["active", "a", "mix"] = "active"  # "together": whose sound plays
     language: str = Field(default="auto", max_length=8)
     # Captions for non-English speech: the spoken language, or an English translation
-    caption_language: Literal["original", "english"] = "english"
+    caption_language: Literal["original", "english", "hinglish"] = "english"
     quality: Literal["draft", "standard", "high"] = "standard"
     silence_removal: bool = False
     context_padding: bool = True

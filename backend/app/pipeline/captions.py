@@ -584,7 +584,9 @@ def title_events(ov: dict, width: int, height: int, seam: float | None, keywords
     pos = ov.get("pos") or {}
     dx = {"left": 0.07, "center": 0.5, "right": 0.93}[align]
     x = int(max(0.0, min(1.0, float(pos.get("x", dx)))) * width)
-    y0 = int(max(0.03, min(0.97, float(pos.get("y", seam if seam is not None else 0.2)))) * height)
+    # default: just above the join of stacked panels (captions sit on the join), else the upper fifth
+    dy = 0.2 if seam is None else (seam - 0.11 if seam > 0.3 else seam + 0.11)
+    y0 = int(max(0.03, min(0.97, float(pos.get("y", dy)))) * height)
     an = {"left": 4, "center": 5, "right": 6}[align]
     fs = spec["size"] * k
     lineh = fs * spec["line_spacing"]

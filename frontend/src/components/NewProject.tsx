@@ -641,6 +641,7 @@ export function NewProject() {
                 onChange={(v) => set("caption_language", v as GenerateSettings["caption_language"])}
                 options={[
                   { value: "english", label: "English (translated if needed)" },
+                  { value: "hinglish", label: "Hinglish (Hindi in English letters)" },
                   { value: "original", label: "Same language as the video" },
                 ]}
                 className="h-8 w-52 text-xs"

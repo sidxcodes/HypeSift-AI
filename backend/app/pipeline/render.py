@@ -176,11 +176,62 @@ def output_size(aspect: str, quality: str) -> tuple[int, int]:
 FACECAM_TOP = 0.4  # share of the frame the webcam gets in the gameplay layout
 
 
+DEFAULT_CAM_BOX = [0.0, 0.0, 0.3, 0.3]  # when no webcam was detected but the creator wants the layout
+
+
+def _panel_crop(sw: int, sh: int, ratio: float, adj: dict) -> tuple[int, int, int, int]:
+    """A crop (x, y, w, h) in source pixels with the panel's aspect ratio, from a centre (x, y in 0-1)
+    and a width (w, share of the source width). Kept inside the source."""
+    cw = max(16.0, float(adj["w"]) * sw)
+    ch = cw / ratio
+    if ch > sh:
+        ch, cw = float(sh), sh * ratio
+    if cw > sw:
+        cw, ch = float(sw), sw / ratio
+    x = min(max(float(adj["x"]) * sw - cw / 2, 0), sw - cw)
+    y = min(max(float(adj["y"]) * sh - ch / 2, 0), sh - ch)
+    ev = lambda v: int(v) // 2 * 2  # noqa: E731
+    return ev(x), ev(y), max(16, ev(cw)), max(16, ev(ch))
+
+
+def facecam_layout(sw: int, sh: int, W: int, H: int, rf: dict, layout: dict | None) -> dict:
+    """The gameplay layout: cam panel + game panel, each a crop of the source. Defaults come from the
+    detected webcam; every value can be overridden in the editor (edits.layout):
+    split (cam share of the height), cam/game {x, y, w}, swap (cam at the bottom)."""
+    lay = layout or {}
+    split = max(0.2, min(0.7, float(lay.get("split") or FACECAM_TOP)))
+    cam_h = int(H * split) // 2 * 2
+    game_h = H - cam_h
+    bx, by, bw, bh = (rf.get("facecam") or {}).get("box") or DEFAULT_CAM_BOX
+    r_cam = W / cam_h
+    fw, fh = bw * sw, bh * sh
+    cw = fh * r_cam if fw / max(fh, 1) > r_cam else fw  # cover-crop the webcam box
+    cam_def = {"x": bx + bw / 2, "y": by + bh / 2, "w": cw / sw}
+    gw, gh = crop_for_ratio(sw, sh, W / game_h)
+    gx = (sw - gw) // 2
+    cam_l, cam_r = bx * sw, (bx + bw) * sw
+    if cam_r > gx and cam_l < gx + gw:  # keep the webcam out of the game panel when there's room
+        gx = max(gx, min(cam_r, sw - gw)) if (cam_l + cam_r) / 2 < sw / 2 else min(gx, max(cam_l - gw, 0))
+    game_def = {"x": (gx + gw / 2) / sw, "y": 0.5, "w": gw / sw}
+    cam = {**cam_def, **{k: v for k, v in (lay.get("cam") or {}).items() if k in ("x", "y", "w") and v is not None}}
+    game = {**game_def, **{k: v for k, v in (lay.get("game") or {}).items() if k in ("x", "y", "w") and v is not None}}
+    return {
+        "cam_h": cam_h,
+        "game_h": game_h,
+        "cam": _panel_crop(sw, sh, r_cam, cam),
+        "game": _panel_crop(sw, sh, W / game_h, game),
+        "swap": bool(lay.get("swap")),
+        "seam": (1 - split) if lay.get("swap") else split,
+    }
+
+
 def layout_seam(edits: dict, rf: dict) -> float | None:
     """Where two stacked panels meet (fraction of height), for captions to sit on; None if one panel."""
     mode = (edits.get("crop") or {}).get("mode")
-    if mode == "facecam" and rf.get("facecam") and edits.get("aspect") in ("9:16", "4:5"):
-        return FACECAM_TOP
+    if mode == "facecam" and (rf.get("facecam") or edits.get("layout")) and edits.get("aspect") in ("9:16", "4:5"):
+        lay = edits.get("layout") or {}
+        split = max(0.2, min(0.7, float(lay.get("split") or FACECAM_TOP)))
+        return (1 - split) if lay.get("swap") else split
     if mode == "split" and rf.get("split") and edits.get("aspect") == "9:16":
         return 0.5
     if mode in ("compare", "pair") and edits.get("aspect") in ("9:16", "4:5"):
@@ -222,29 +273,15 @@ def build_video_chain(probe: ffmpeg.Probe, edits: dict, rf: dict, W: int, H: int
             + _cover(f"[cb]{bottom},", W, H - hh, "[tb]")
             + f";[ta][tb]vstack=2,{bar},setsar=1[vr]"
         )
-    if mode == "facecam" and rf.get("facecam") and aspect in ("9:16", "4:5"):
-        # Streamer layout: their webcam overlay on top, the game (or shared screen) below.
-        top_h = int(H * FACECAM_TOP) // 2 * 2
-        bot_h = H - top_h
-        bx, by, bw, bh = rf["facecam"]["box"]
-        fx, fy = int(bx * sw) // 2 * 2, int(by * sh) // 2 * 2
-        fw, fh = max(16, int(bw * sw) // 2 * 2), max(16, int(bh * sh) // 2 * 2)
-        fw, fh = min(fw, sw - fx), min(fh, sh - fy)
-        gw, gh = crop_for_ratio(sw, sh, W / bot_h)
-        gx, gy = (sw - gw) // 2, (sh - gh) // 2
-        # keep the webcam out of the game panel: slide the crop just past it when there's room
-        cam_l, cam_r = fx, fx + fw
-        if cam_r > gx and cam_l < gx + gw:
-            if (cam_l + cam_r) / 2 < sw / 2:
-                gx = max(gx, min(cam_r, sw - gw))
-            else:
-                gx = min(gx, max(cam_l - gw, 0))
-        gx, gy = gx // 2 * 2, gy // 2 * 2
-        return (
-            f"[0:v]split=2[ca][ga];[ca]crop={fw}:{fh}:{fx}:{fy},"
-            f"scale={W}:{top_h}:force_original_aspect_ratio=increase:flags=lanczos,crop={W}:{top_h}[ta];"
-            f"[ga]crop={gw}:{gh}:{gx}:{gy},scale={W}:{bot_h}:flags=lanczos[tb];[ta][tb]vstack=2,setsar=1[vr]"
-        )
+    if mode == "facecam" and (rf.get("facecam") or edits.get("layout")) and aspect in ("9:16", "4:5"):
+        # Streamer layout: their webcam on top (or bottom), the game (or shared screen) in the other panel.
+        L = facecam_layout(sw, sh, W, H, rf, edits.get("layout"))
+        cx, cy, cw, ch = L["cam"]
+        gx, gy, gw, gh = L["game"]
+        cam = f"[ca]crop={cw}:{ch}:{cx}:{cy},scale={W}:{L['cam_h']}:flags=lanczos,setsar=1[pc]"
+        game = f"[ga]crop={gw}:{gh}:{gx}:{gy},scale={W}:{L['game_h']}:flags=lanczos,setsar=1[pg]"
+        order = "[pg][pc]" if L["swap"] else "[pc][pg]"
+        return f"[0:v]split=2[ca][ga];{cam};{game};{order}vstack=2,setsar=1[vr]"
     if mode == "split" and rf.get("split") and aspect == "9:16":
         half_h = H // 2
         cw, ch = crop_for_ratio(sw, sh, W / half_h)

@@ -172,7 +172,7 @@ export function titleAnchorStyle(ov: Partial<Overlay>, seam?: number | null): Re
   const spec = resolveTitle(ov as Partial<Overlay> & Record<string, unknown>);
   const dx = spec.align === "left" ? 0.07 : spec.align === "right" ? 0.93 : 0.5;
   const x = ov.pos?.x ?? dx;
-  const y = ov.pos?.y ?? seam ?? 0.2;
+  const y = ov.pos?.y ?? (seam == null ? 0.2 : seam > 0.3 ? seam - 0.11 : seam + 0.11); // mirrors title_events
   const tx = spec.align === "left" ? "0" : spec.align === "right" ? "-100%" : "-50%";
   return { left: `${x * 100}%`, top: `${y * 100}%`, transform: `translate(${tx}, -50%)` };
 }

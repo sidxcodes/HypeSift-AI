@@ -1,4 +1,4 @@
-import type { AiSettings, Asset, Clip, ClipDetail, GenerateSettings, Job, Meta, PostPlan, Project, StorageUsage, UrlInfo, User } from "./types";
+import type { AiSettings, Asset, CaptionLanguage, Clip, ClipDetail, GenerateSettings, Job, Meta, PostPlan, Project, StorageUsage, UrlInfo, User } from "./types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -51,6 +51,8 @@ export const api = {
   clips: (q: { favorite?: boolean; rendered?: boolean } = {}) =>
     req<Clip[]>(`/api/clips?favorite=${!!q.favorite}&rendered=${!!q.rendered}`),
   clip: (id: string) => req<ClipDetail>(`/api/clips/${id}`),
+  clipWords: (id: string, lang: CaptionLanguage) =>
+    req<{ language: CaptionLanguage; words: [string, number, number][] }>(`/api/clips/${id}/words?lang=${lang}`),
   updateClip: (id: string, body: Record<string, unknown>) =>
     req<{ clip: Clip; job: Job | null }>(`/api/clips/${id}`, { method: "PATCH", body: json(body) }),
   publish: (id: string, platforms: string[], tone: string) =>

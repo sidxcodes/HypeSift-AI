@@ -21,6 +21,7 @@ from .pipeline import (
     ffmpeg,
     gemini,
     highlights,
+    hinglish,
     ingest,
     llm,
     longscan,
@@ -62,14 +63,28 @@ def load_rank_words(pid: str) -> list:
     return load_transcript(pid).words
 
 
-def caption_words(p: Project) -> list:
-    """Words burned in as captions: English (the translation, for non-English speech) unless the
-    project asked for captions in the spoken language."""
-    if (p.settings or {}).get("caption_language", "english") != "original" and storage.exists(
-        pkey(p.id, "rank_words.json")
-    ):
+CAPTION_LANGUAGES = ("english", "hinglish", "original")
+
+
+def caption_language(p: Project, clip: Clip | None = None) -> str:
+    """The clip's own choice (editor), else the project's setting; English by default."""
+    lang = ((clip.edits or {}).get("captions") or {}).get("language") if clip else None
+    lang = lang or (p.settings or {}).get("caption_language") or "english"
+    return lang if lang in CAPTION_LANGUAGES else "english"
+
+
+def caption_words(p: Project, lang: str | None = None) -> list:
+    """Words burned in as captions, in the chosen language:
+    english  - the English translation of non-English speech (the transcript when it's English)
+    hinglish - the spoken words written in Latin letters (Hindi -> "kapde to maine...")
+    original - the spoken language as transcribed"""
+    lang = lang or caption_language(p)
+    if lang == "english" and storage.exists(pkey(p.id, "rank_words.json")):
         return load_rank_words(p.id)
-    return load_transcript(p.id).words
+    words = load_transcript(p.id).words
+    if lang == "hinglish":
+        return hinglish.words(words)
+    return words
 
 
 def ensure_english(p: Project, ctx: JobContext | None = None) -> None:
@@ -263,8 +278,8 @@ def render_clip(ctx: JobContext | None, clip: Clip, project: Project, words, on_
         elif unlocked and rf.get("split") and edits["aspect"] == "9:16" and project.analysis.get("genre") == "podcast":
             edits["crop"]["mode"] = "split"
             clip.edits = {**(clip.edits or {}), "crop": {**edits["crop"]}}
-    if edits["crop"]["mode"] == "facecam" and not rf.get("facecam"):
-        edits["crop"]["mode"] = "auto"  # asked for, but no webcam found in this clip
+    if edits["crop"]["mode"] == "facecam" and not rf.get("facecam") and not edits.get("layout"):
+        edits["crop"]["mode"] = "auto"  # asked for, but no webcam found and none placed by hand
     version = int(time.time())
     out_key = ckey(clip.id, f"clip-{version}.mp4")
     work = storage.path(f"work/{clip.id}-{version}")
@@ -582,9 +597,7 @@ def generate(ctx: JobContext) -> None:
                 storage.path(pkey(p.id, "rank_words.json")).write_text(
                     json.dumps([[w.w, w.s, w.e] for w in english]), encoding="utf-8"
                 )
-            if settings.get("caption_language", "english") != "original" and english:
-                tr.words = english
-            elif scan and scan[0].split("-")[0] == lang:
+            if scan and scan[0].split("-")[0] == lang:
                 # The site's own captions in the spoken language are cleaner than a small speech model.
                 tr.words = scan[1]
                 tr.engine += " + site captions"
@@ -707,7 +720,7 @@ def generate(ctx: JobContext) -> None:
         clip_ids = [c.id for c in new]
 
     # 6-7. render + publish -----------------------------------------------------
-    _render_and_publish(ctx, p.id, clip_ids, tr.words, settings)
+    _render_and_publish(ctx, p.id, clip_ids, caption_words(p), settings)
 
     with SessionLocal() as db:
         pp = db.get(Project, p.id)
@@ -787,8 +800,10 @@ def render_job(ctx: JobContext) -> None:
         project = db.get(Project, clip.project_id)
         clip.render_status = "rendering"
         db.commit()
-        ensure_english(project, ctx)
-        words = caption_words(project)
+        lang = caption_language(project, clip)
+        if lang == "english":
+            ensure_english(project, ctx)
+        words = caption_words(project, lang)
         render_clip(ctx, clip, project, words, on_progress=ctx.progress)
         db.commit()
 

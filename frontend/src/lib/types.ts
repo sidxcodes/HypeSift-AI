@@ -58,7 +58,7 @@ export type GenerateSettings = {
   compare_play?: ComparePlay;
   compare_audio?: "active" | "a" | "mix";
   language: string;
-  caption_language: "original" | "english";
+  caption_language: CaptionLanguage;
   quality: "draft" | "standard" | "high";
   silence_removal: boolean;
   context_padding: boolean;
@@ -103,6 +103,7 @@ export type Overlay = { kind: "title" | "watermark"; text: string; start: number
 } & Partial<import("./title").TitleSpec>;
 
 export type Edits = {
+  layout?: import("./layout").GameLayout;
   aspect: "9:16" | "1:1" | "4:5" | "16:9";
   crop: { mode: "auto" | "manual" | "center" | "split" | "fit" | "facecam" | "compare" | "pair" | "multi"; x: number; y: number; zoom: number };
   multi?: { parts: { start: number; end: number; label?: string; crop?: string }[]; play: ComparePlay; audio?: string };
@@ -267,7 +268,12 @@ export type ClipDetail = {
   chunks: Chunk[];
   envelope: { start: number; hop: number; loudness: number[] } | null;
   job: Job | null;
+  caption_language?: CaptionLanguage;
+  spoken_language?: string;
+  has_english?: boolean;
 };
+
+export type CaptionLanguage = "english" | "hinglish" | "original";
 
 export type Asset = { key: string; name: string; kind: "logo" | "music"; size: number; url: string | null };
 

@@ -4,6 +4,7 @@ import { Pause, Play, RotateCcw, Volume2, VolumeX } from "lucide-react";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { fmtTime } from "@/lib/api";
 import type { CaptionStyle, Chunk, Edits, Reframe } from "@/lib/types";
+import { facecamLayout, type PanelAdj } from "@/lib/layout";
 import { CaptionOverlay } from "../CaptionPreview";
 
 const ASPECTS: Record<string, [number, number]> = { "9:16": [1080, 1920], "1:1": [1080, 1080], "4:5": [1080, 1350], "16:9": [1920, 1080] };
@@ -45,10 +46,12 @@ type Props = {
   onCropDrag?: (x: number, y: number) => void;
   /** Text tool open: keep the title visible and let it be dragged. */
   onTitleMove?: (p: { x: number; y: number }) => void;
+  /** Format tool on a gameplay clip: drag the cam / game panel to pan it. */
+  onLayoutDrag?: (panel: "cam" | "game", adj: PanelAdj) => void;
 };
 
 export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
-  { src, start, end, edits, reframe, chunks, style, onTime, onCropDrag, onTitleMove },
+  { src, start, end, edits, reframe, chunks, style, onTime, onCropDrag, onTitleMove, onLayoutDrag },
   ref,
 ) {
   const video = useRef<HTMLVideoElement>(null);
@@ -61,6 +64,7 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
   const [muted, setMuted] = useState(false);
   const [ready, setReady] = useState(false);
   const drag = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null);
+  const panelDrag = useRef<{ panel: "cam" | "game"; x: number; y: number; adj: PanelAdj; rect: number[]; ph: number } | null>(null);
   const live = useRef({ start, end, edits, reframe });
   live.current = { start, end, edits, reframe };
 
@@ -144,22 +148,13 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
       ctx.drawImage(v, (W - sw * fit) / 2, (H - sh * fit) / 2, sw * fit, sh * fit);
       return;
     }
-    if (mode === "facecam" && rf.facecam && (e.aspect === "9:16" || e.aspect === "4:5")) {
-      // gameplay layout: webcam on top (cover-cropped), centre of the game below
-      const topH = Math.round(H * 0.4);
-      const [bx, by, bw, bh] = rf.facecam.box;
-      const fx = bx * sw;
-      const fy = by * sh;
-      const fw = bw * sw;
-      const fh = bh * sh;
-      const s = Math.max(W / fw, topH / fh);
-      const vw = W / s;
-      const vh = topH / s;
-      ctx.drawImage(v, fx + (fw - vw) / 2, fy + (fh - vh) / 2, vw, vh, 0, 0, W, topH);
-      const [gw, gh] = cropBox(sw, sh, W / (H - topH), 1);
-      let gx = (sw - gw) / 2;
-      if (fx + fw > gx && fx < gx + gw) gx = fx + fw / 2 < sw / 2 ? Math.max(gx, Math.min(fx + fw, sw - gw)) : Math.min(gx, Math.max(fx - gw, 0));
-      ctx.drawImage(v, gx, (sh - gh) / 2, gw, gh, 0, topH, W, H - topH);
+    if (mode === "facecam" && (rf.facecam || e.layout) && (e.aspect === "9:16" || e.aspect === "4:5")) {
+      // gameplay layout: webcam panel + game panel (both adjustable in Format)
+      const L = facecamLayout(sw, sh, W, H, rf.facecam?.box, e.layout);
+      const camY = L.swap ? L.gameH : 0;
+      const gameY = L.swap ? 0 : L.camH;
+      ctx.drawImage(v, ...L.camRect, 0, camY, W, L.camH);
+      ctx.drawImage(v, ...L.gameRect, 0, gameY, W, L.gameH);
       return;
     }
     if (mode === "split" && rf.split && e.aspect === "9:16") {
@@ -224,12 +219,40 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
     } else v.pause();
   };
 
+  const gameplay = edits.crop.mode === "facecam" && (reframe.facecam || edits.layout) && (edits.aspect === "9:16" || edits.aspect === "4:5");
   const onPointerDown = (e: React.PointerEvent) => {
+    const v = video.current;
+    if (gameplay && onLayoutDrag && v?.videoWidth) {
+      const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const L = facecamLayout(v.videoWidth, v.videoHeight, size.w, size.h, reframe.facecam?.box, edits.layout);
+      const yFrac = (e.clientY - r.top) / r.height;
+      const inCam = L.swap ? yFrac > 1 - L.split : yFrac < L.split;
+      const panel = inCam ? "cam" : "game";
+      panelDrag.current = {
+        panel,
+        x: e.clientX,
+        y: e.clientY,
+        adj: inCam ? L.cam : L.game,
+        rect: [v.videoWidth, v.videoHeight, ...(inCam ? L.camRect : L.gameRect).slice(2)],
+        ph: inCam ? L.camH : L.gameH,
+      };
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      return;
+    }
     if (edits.crop.mode !== "manual" || !onCropDrag) return;
     drag.current = { x: e.clientX, y: e.clientY, cx: edits.crop.x, cy: edits.crop.y };
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent) => {
+    const pd = panelDrag.current;
+    if (pd && onLayoutDrag) {
+      const [sw, sh, cw, ch] = pd.rect;
+      // dragging right shows more of the left: move the crop the other way, in source units
+      const x = pd.adj.x - ((e.clientX - pd.x) / size.w) * (cw / sw);
+      const y = pd.adj.y - ((e.clientY - pd.y) / pd.ph) * (ch / sh);
+      onLayoutDrag(pd.panel, { ...pd.adj, x: +Math.min(1, Math.max(0, x)).toFixed(4), y: +Math.min(1, Math.max(0, y)).toFixed(4) });
+      return;
+    }
     if (!drag.current || !onCropDrag) return;
     const dx = (e.clientX - drag.current.x) / size.w;
     const dy = (e.clientY - drag.current.y) / size.h;
@@ -244,11 +267,14 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
             ref={canvas}
             width={Math.round(size.w * 1.5)}
             height={Math.round(size.h * 1.5)}
-            style={{ width: size.w, height: size.h, cursor: edits.crop.mode === "manual" ? "grab" : "default" }}
+            style={{ width: size.w, height: size.h, cursor: edits.crop.mode === "manual" || (gameplay && onLayoutDrag) ? "grab" : "default" }}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
-            onPointerUp={() => (drag.current = null)}
-            onClick={edits.crop.mode === "manual" ? undefined : toggle}
+            onPointerUp={() => {
+              drag.current = null;
+              panelDrag.current = null;
+            }}
+            onClick={edits.crop.mode === "manual" || (gameplay && onLayoutDrag) ? undefined : toggle}
           />
           <CaptionOverlay
             chunks={chunks}
@@ -270,8 +296,8 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
               edits.crop.mode === "compare" || edits.crop.mode === "pair"
                 ? 0.5
                 :
-              edits.crop.mode === "facecam" && reframe.facecam && (edits.aspect === "9:16" || edits.aspect === "4:5")
-                ? 0.4
+              gameplay
+                ? facecamLayout(16, 9, 9, 16, reframe.facecam?.box, edits.layout).seam
                 : edits.crop.mode === "split" && reframe.split && edits.aspect === "9:16"
                   ? 0.5
                   : null

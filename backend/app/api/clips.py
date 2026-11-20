@@ -13,7 +13,7 @@ from ..pipeline.render import default_chunks
 from ..schemas import ClipEditIn, FavoriteIn, FeedbackIn, PublishIn, PublishUpdateIn
 from ..serializers import clip_out, job_out, project_out
 from ..storage import storage
-from ..tasks import caption_words, load_signals, pkey
+from ..tasks import caption_language, caption_words, load_signals, load_transcript, pkey
 
 router = APIRouter(prefix="/api/clips", tags=["clips"])
 
@@ -35,6 +35,7 @@ ALLOWED_EDIT_KEYS = {
     "compare",
     "labels",
     "multi",
+    "layout",
 }
 
 
@@ -66,7 +67,8 @@ def library(
 def get_one(cid: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     c = get_clip(db, cid, user)
     p = c.project
-    all_words = caption_words(p)
+    lang = caption_language(p, c)
+    all_words = caption_words(p, lang)
     lo, hi = max(0.0, c.start - 60), c.end + 60
     words = [[w.w, w.s, w.e] for w in all_words if lo <= w.s <= hi]
     edits = c.edits or {}
@@ -84,7 +86,20 @@ def get_one(cid: str, user: User = Depends(current_user), db: Session = Depends(
         "chunks": chunks,
         "envelope": env,
         "job": job_out(clip_job(db, c.id)),
+        "caption_language": lang,
+        "spoken_language": load_transcript(p.id).language,
+        "has_english": storage.exists(pkey(p.id, "rank_words.json")),
     }
+
+
+@router.get("/{cid}/words")
+def clip_words(cid: str, lang: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """Transcript words around the clip in another caption language (the editor's language switch)."""
+    if lang not in ("english", "hinglish", "original"):
+        raise HTTPException(422, "Unknown caption language.")
+    c = get_clip(db, cid, user)
+    lo, hi = max(0.0, c.start - 60), c.end + 60
+    return {"language": lang, "words": [[w.w, w.s, w.e] for w in caption_words(c.project, lang) if lo <= w.s <= hi]}
 
 
 @router.patch("/{cid}")
@@ -125,6 +140,25 @@ def update(cid: str, body: ClipEditIn, user: User = Depends(current_user), db: S
                     for ch in cap["chunks"][:400]
                     if str(ch.get("text", "")).strip()
                 ]
+        if "layout" in new:  # gameplay layout: split, cam/game crops, swap
+            lay = new["layout"] if isinstance(new["layout"], dict) else {}
+            clean: dict = {}
+            if lay.get("split") is not None:
+                clean["split"] = max(0.2, min(0.7, float(lay["split"])))
+            for k in ("cam", "game"):
+                if isinstance(lay.get(k), dict):
+                    clean[k] = {
+                        a: max(0.0, min(1.0, float(lay[k][a]))) for a in ("x", "y", "w") if lay[k].get(a) is not None
+                    }
+            clean["swap"] = bool(lay.get("swap"))
+            new["layout"] = clean
+        if isinstance(new.get("captions"), dict) and new["captions"].get("language") not in (
+            None,
+            "english",
+            "hinglish",
+            "original",
+        ):
+            raise HTTPException(422, "Unknown caption language.")
         if "multi" in new:  # comparison clips: only the play mode / sound can change, not the parts
             ask = new["multi"] if isinstance(new["multi"], dict) else {}
             cur = dict((c.edits or {}).get("multi") or {})

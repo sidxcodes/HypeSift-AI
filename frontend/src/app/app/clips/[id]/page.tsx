@@ -20,13 +20,16 @@ import { Assistant } from "@/components/Assistant";
 import { useSession } from "@/components/AppShell";
 import { Preview, type PreviewHandle } from "@/components/editor/Preview";
 import { Timeline } from "@/components/editor/Timeline";
+import { LayoutControls } from "@/components/editor/LayoutControls";
 import { TitleEditor } from "@/components/editor/TitleEditor";
 import { PublishPanel } from "@/components/PublishPanel";
 import { useToast } from "@/components/toast";
 import { Badge, Button, Card, cx, Field, Input, Progress, Segmented, Select, Skeleton, Switch } from "@/components/ui";
 import { api, fmtTime } from "@/lib/api";
 import { chunkWords, retime } from "@/lib/captions";
-import type { CaptionStyle, Chunk, ClipDetail, Edits, Job } from "@/lib/types";
+import type { CaptionLanguage, CaptionStyle, Chunk, ClipDetail, Edits, Job } from "@/lib/types";
+
+const LANG_NAMES: Record<string, string> = { hi: "हिन्दी", ur: "اردو", bn: "বাংলা", ta: "தமிழ்", te: "తెలుగు", mr: "मराठी", gu: "ગુજરાતી", pa: "ਪੰਜਾਬੀ", es: "Español", fr: "Français", de: "Deutsch", pt: "Português", ar: "العربية", ja: "日本語", ko: "한국어", ru: "Русский" };
 
 type State = { start: number; end: number; title: string; edits: Edits; chunks: Chunk[]; chunksEdited: boolean };
 type Tool = "trim" | "captions" | "format" | "text" | "audio" | "publish";
@@ -160,6 +163,21 @@ export default function EditorPage() {
 
   const onTime = useCallback((t: number) => setTime(t), []);
 
+  const switchLanguage = async (lang: CaptionLanguage) => {
+    if (!s || !meta) return;
+    try {
+      const r = await api.clipWords(id, lang);
+      setDetail((d) => (d ? { ...d, words: r.words, caption_language: lang } : d));
+      const maxWords = (meta.caption_presets[s.edits.captions.preset]?.max_words ?? 3) as number;
+      const rel = r.words
+        .filter(([, ws, we]) => we > s.start && ws < s.end)
+        .map(([w, ws, we]) => ({ w, s: +(ws - s.start).toFixed(3), e: +(we - s.start).toFixed(3) }));
+      update({ edits: { ...s.edits, captions: { ...s.edits.captions, language: lang } as Edits["captions"] }, chunks: chunkWords(rel, maxWords), chunksEdited: false }, "lang");
+    } catch (e) {
+      toast("error", (e as Error).message);
+    }
+  };
+
   const exportClip = async (render: boolean) => {
     if (!s) return;
     try {
@@ -266,6 +284,11 @@ export default function EditorPage() {
               style={style}
               onTime={onTime}
               onCropDrag={(x, y) => setEdits((e) => ({ ...e, crop: { ...e.crop, x, y } }), "crop-drag")}
+              onLayoutDrag={
+                tool === "format"
+                  ? (panel, adj) => setEdits((e) => ({ ...e, layout: { ...(e.layout ?? {}), [panel]: adj } }), `drag-${panel}`)
+                  : undefined
+              }
               onTitleMove={
                 tool === "text" && s.edits.overlays.some((o) => o.kind === "title")
                   ? (pos) =>
@@ -324,6 +347,22 @@ export default function EditorPage() {
                 <h3 className="font-semibold">Captions</h3>
                 <Switch checked={s.edits.captions.enabled} onChange={(v) => setEdits((e) => ({ ...e, captions: { ...e.captions, enabled: v } }), "cap-on")} label="" />
               </div>
+              {detail.spoken_language && !detail.spoken_language.startsWith("en") && (
+                <Field label="Caption language">
+                  <Segmented
+                    value={(s.edits.captions as { language?: CaptionLanguage }).language ?? detail.caption_language ?? "english"}
+                    onChange={(v) => switchLanguage(v as CaptionLanguage)}
+                    options={[
+                      { value: "english", label: "English" },
+                      { value: "hinglish", label: "Hinglish" },
+                      { value: "original", label: LANG_NAMES[detail.spoken_language.split("-")[0]] ?? "Original" },
+                    ]}
+                  />
+                  <span className="mt-1 block text-[11px] text-muted">
+                    English = translated · Hinglish = {LANG_NAMES[detail.spoken_language.split("-")[0]] === "हिन्दी" ? "Hindi" : "the spoken words"} in English letters (“kapde to maine…”) · then Render &amp; export
+                  </span>
+                </Field>
+              )}
               <Field label="Style">
                 <Select
                   value={s.edits.captions.preset}
@@ -408,7 +447,9 @@ export default function EditorPage() {
                     { value: "manual", label: "Manual position" },
                     { value: "center", label: "Centre crop" },
                     ...(clip.reframe.split ? [{ value: "split", label: "Two speakers stacked" }] : []),
-                    ...(clip.reframe.facecam ? [{ value: "facecam", label: "Gameplay: facecam on top" }] : []),
+                    ...(s.edits.aspect === "9:16" || s.edits.aspect === "4:5"
+                      ? [{ value: "facecam", label: clip.reframe.facecam ? "Gameplay: cam + game (cam detected)" : "Gameplay: cam + game (place the cam yourself)" }]
+                      : []),
                     { value: "fit", label: "Fit whole frame (blurred fill)" },
                   ]}
                 />
@@ -419,6 +460,17 @@ export default function EditorPage() {
                   {clip.reframe.face_ratio != null && <Badge>Faces in {Math.round(clip.reframe.face_ratio * 100)}% of frames</Badge>}
                   {clip.reframe.split && <Badge tone="accent">2 speakers detected</Badge>}
                 </div>
+              )}
+              {s.edits.crop.mode === "facecam" && (s.edits.aspect === "9:16" || s.edits.aspect === "4:5") && (
+                <LayoutControls
+                  layout={s.edits.layout}
+                  box={clip.reframe.facecam?.box}
+                  sw={detail.project.width ?? 1920}
+                  sh={detail.project.height ?? 1080}
+                  W={s.edits.aspect === "4:5" ? 1080 : 1080}
+                  H={s.edits.aspect === "4:5" ? 1350 : 1920}
+                  onChange={(l) => setEdits((e) => ({ ...e, layout: l }), "layout")}
+                />
               )}
               {s.edits.crop.mode === "manual" && (
                 <>
