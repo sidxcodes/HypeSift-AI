@@ -63,6 +63,7 @@ _BASE: dict[str, Any] = {
     "shadow_color": "#000000",
     "letter_spacing": 0,  # px at 1080 wide
     "rotation": 0,  # degrees, + = clockwise
+    "pos": None,  # free position {x, y} (0-1) chosen in the editor; None = the preset's spot
 }
 
 
