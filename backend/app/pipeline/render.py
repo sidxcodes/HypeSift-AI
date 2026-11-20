@@ -146,11 +146,12 @@ def clip_words(words: list[Word], start: float, end: float) -> list[dict]:
     ]
 
 
-def default_chunks(words: list[Word], start: float, end: float, preset: str) -> list[dict]:
+def default_chunks(
+    words: list[Word], start: float, end: float, preset: str, max_words: int | None = None
+) -> list[dict]:
     style = cap.PRESETS.get(preset, cap.PRESETS["bold_creator"])
-    return cap.chunk_words(
-        clip_words(words, start, end), max_words=style["max_words"], max_chars=16 * style["max_words"] // 2 + 12
-    )
+    n = max(1, min(8, int(max_words or style["max_words"])))
+    return cap.chunk_words(clip_words(words, start, end), max_words=n, max_chars=16 * n // 2 + 12)
 
 
 def _map_chunks(chunks: list[dict], fmap: Callable[[float], float | None]) -> list[dict]:
@@ -376,7 +377,9 @@ def render(
     out_dur = sum(s.e - s.s for s in segs)
 
     ce = edits["captions"]
-    chunks = ce.get("chunks") or default_chunks(words, start, end, ce.get("preset", "bold_creator"))
+    chunks = ce.get("chunks") or default_chunks(
+        words, start, end, ce.get("preset", "bold_creator"), (ce.get("style") or {}).get("max_words")
+    )
     mapped = _map_chunks(chunks, fmap)
     style = cap.style_for(ce) if ce.get("enabled", True) else None
     overlays = []

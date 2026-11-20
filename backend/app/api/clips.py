@@ -73,7 +73,9 @@ def get_one(cid: str, user: User = Depends(current_user), db: Session = Depends(
     words = [[w.w, w.s, w.e] for w in all_words if lo <= w.s <= hi]
     edits = c.edits or {}
     ce = edits.get("captions") or {}
-    chunks = ce.get("chunks") or default_chunks(all_words, c.start, c.end, ce.get("preset", "bold_creator"))
+    chunks = ce.get("chunks") or default_chunks(
+        all_words, c.start, c.end, ce.get("preset", "bold_creator"), (ce.get("style") or {}).get("max_words")
+    )
     env = None
     if storage.exists(pkey(p.id, "signals.npz")):
         sig = load_signals(p.id)

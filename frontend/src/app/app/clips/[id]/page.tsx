@@ -20,6 +20,7 @@ import { Assistant } from "@/components/Assistant";
 import { useSession } from "@/components/AppShell";
 import { Preview, type PreviewHandle } from "@/components/editor/Preview";
 import { Timeline } from "@/components/editor/Timeline";
+import { CaptionStyleEditor } from "@/components/editor/CaptionStyleEditor";
 import { LayoutControls } from "@/components/editor/LayoutControls";
 import { TitleEditor } from "@/components/editor/TitleEditor";
 import { PublishPanel } from "@/components/PublishPanel";
@@ -27,7 +28,7 @@ import { useToast } from "@/components/toast";
 import { Badge, Button, Card, cx, Field, Input, Progress, Segmented, Select, Skeleton, Switch } from "@/components/ui";
 import { api, fmtTime } from "@/lib/api";
 import { chunkWords, retime } from "@/lib/captions";
-import type { CaptionLanguage, CaptionStyle, Chunk, ClipDetail, Edits, Job } from "@/lib/types";
+import type { CaptionLanguage, CaptionStyle, Chunk, ClipDetail, Edits, Effect, Job, Transition } from "@/lib/types";
 
 const LANG_NAMES: Record<string, string> = { hi: "हिन्दी", ur: "اردو", bn: "বাংলা", ta: "தமிழ்", te: "తెలుగు", mr: "मराठी", gu: "ગુજરાતી", pa: "ਪੰਜਾਬੀ", es: "Español", fr: "Français", de: "Deutsch", pt: "Português", ar: "العربية", ja: "日本語", ko: "한국어", ru: "Русский" };
 
@@ -117,7 +118,9 @@ export default function EditorPage() {
         let next = { ...h.now, ...p };
         // re-derive captions from the transcript when timing or chunking changes (unless hand-edited)
         if (("start" in p || "end" in p || "rechunk" in (p as object)) && !next.chunksEdited) {
-          const maxWords = (meta?.caption_presets[next.edits.captions.preset]?.max_words ?? 3) as number;
+          const maxWords = ((next.edits.captions.style as { max_words?: number } | undefined)?.max_words ??
+            meta?.caption_presets[next.edits.captions.preset]?.max_words ??
+            3) as number;
           const rel = words.filter(([, ws, we]) => we > next.start && ws < next.end).map(([w, ws, we]) => ({ w, s: +(ws - next.start).toFixed(3), e: +(we - next.start).toFixed(3) }));
           next = { ...next, chunks: chunkWords(rel, maxWords) };
         } else if (("start" in p) && next.chunksEdited) {
@@ -289,6 +292,11 @@ export default function EditorPage() {
                   ? (panel, adj) => setEdits((e) => ({ ...e, layout: { ...(e.layout ?? {}), [panel]: adj } }), `drag-${panel}`)
                   : undefined
               }
+              onCaptionMove={
+                tool === "captions"
+                  ? (pos) => setEdits((e) => ({ ...e, captions: { ...e.captions, style: { ...e.captions.style, pos } } }), "cap-drag")
+                  : undefined
+              }
               onTitleMove={
                 tool === "text" && s.edits.overlays.some((o) => o.kind === "title")
                   ? (pos) =>
@@ -363,41 +371,21 @@ export default function EditorPage() {
                   </span>
                 </Field>
               )}
-              <Field label="Style">
-                <Select
-                  value={s.edits.captions.preset}
-                  onChange={(v) => update((st) => ({ edits: { ...st.edits, captions: { ...st.edits.captions, preset: v, style: {} } }, ...({ rechunk: true } as object) }), "preset")}
-                  options={presetEntries.map(([k, p]) => ({ value: k, label: p.label }))}
-                />
-              </Field>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Font">
-                  <Select value={style.font} onChange={(v) => setEdits((e) => ({ ...e, captions: { ...e.captions, style: { ...e.captions.style, font: v } } }), "font")} options={Object.keys(meta.fonts).map((f) => ({ value: f, label: f }))} />
-                </Field>
-                <Field label="Position">
-                  <Select value={style.position} onChange={(v) => setEdits((e) => ({ ...e, captions: { ...e.captions, style: { ...e.captions.style, position: v as CaptionStyle["position"] } } }), "pos")} options={[["top", "Top"], ["middle", "Middle"], ["lower", "Lower third"], ["bottom", "Bottom"]].map(([value, label]) => ({ value, label }))} />
-                </Field>
-                <Field label="Text colour">
-                  <input type="color" value={style.color} onChange={(e) => setEdits((x) => ({ ...x, captions: { ...x.captions, style: { ...x.captions.style, color: e.target.value } } }), "color")} className="h-10 w-full cursor-pointer rounded-xl border border-border bg-surface" aria-label="Text colour" />
-                </Field>
-                <Field label="Highlight colour">
-                  <input type="color" value={style.highlight} onChange={(e) => setEdits((x) => ({ ...x, captions: { ...x.captions, style: { ...x.captions.style, highlight: e.target.value, emphasis_color: e.target.value } } }), "hl")} className="h-10 w-full cursor-pointer rounded-xl border border-border bg-surface" aria-label="Highlight colour" />
-                </Field>
-              </div>
-              <Field label={`Size · ${style.size}`}>
-                <input type="range" min={36} max={140} value={style.size} onChange={(e) => setEdits((x) => ({ ...x, captions: { ...x.captions, style: { ...x.captions.style, size: Number(e.target.value) } } }), "size")} className="w-full" aria-label="Caption size" />
-              </Field>
-              <Field label={`Outline · ${style.outline}`}>
-                <input type="range" min={0} max={12} value={style.outline} onChange={(e) => setEdits((x) => ({ ...x, captions: { ...x.captions, style: { ...x.captions.style, outline: Number(e.target.value) } } }), "outline")} className="w-full" aria-label="Outline width" />
-              </Field>
-              <Field label="Animation">
-                <Select value={style.animation} onChange={(v) => setEdits((x) => ({ ...x, captions: { ...x.captions, style: { ...x.captions.style, animation: v as CaptionStyle["animation"] } } }), "anim")} options={[["none", "None"], ["highlight", "Active word colour"], ["pop", "Active word pop"], ["karaoke", "Karaoke fill"], ["fade", "Fade"]].map(([value, label]) => ({ value, label }))} />
-              </Field>
-              <div className="grid grid-cols-1 gap-1">
-                <Switch checked={style.uppercase} onChange={(v) => setEdits((x) => ({ ...x, captions: { ...x.captions, style: { ...x.captions.style, uppercase: v } } }), "upper")} label="Uppercase" />
-                <Switch checked={style.box} onChange={(v) => setEdits((x) => ({ ...x, captions: { ...x.captions, style: { ...x.captions.style, box: v, box_opacity: v ? 0.6 : 0 } } }), "box")} label="Background box" />
-                <Switch checked={style.emphasis} onChange={(v) => setEdits((x) => ({ ...x, captions: { ...x.captions, style: { ...x.captions.style, emphasis: v } } }), "emph")} label="Highlight key words" hint={(s.edits.captions.keywords ?? []).join(", ") || undefined} />
-              </div>
+              <CaptionStyleEditor
+                style={style}
+                preset={s.edits.captions.preset}
+                presets={meta.caption_presets}
+                transition={(s.edits.captions.transition ?? "none") as Transition}
+                effect={(s.edits.captions.effect ?? "none") as Effect}
+                transitions={meta.caption_transitions}
+                effects={meta.caption_effects}
+                thumb={clip.thumb_url}
+                setStyle={(patch) => setEdits((e) => ({ ...e, captions: { ...e.captions, style: { ...e.captions.style, ...patch } } }), `cap-${Object.keys(patch).join("-")}`)}
+                setPreset={(v) => update((st) => ({ edits: { ...st.edits, captions: { ...st.edits.captions, preset: v, style: { pos: st.edits.captions.style?.pos } } }, ...({ rechunk: true } as object) }), "preset")}
+                setCaptions={(patch) => setEdits((e) => ({ ...e, captions: { ...e.captions, ...patch } }), "cap-anim")}
+                setMaxWords={(n) => update((st) => ({ edits: { ...st.edits, captions: { ...st.edits.captions, style: { ...st.edits.captions.style, max_words: n } } }, ...({ rechunk: true } as object) }), "maxw")}
+                resetStyle={() => update((st) => ({ edits: { ...st.edits, captions: { ...st.edits.captions, style: {} } }, ...({ rechunk: true } as object) }), "cap-reset")}
+              />
               <div>
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-xs font-medium uppercase tracking-wide text-muted">Caption text</span>

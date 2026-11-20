@@ -39,7 +39,7 @@ export function textStyle(style: CaptionStyle, scale: number, effect: Effect = "
   const px = (style.size * (style.size_scale ?? 1) * scale) / (EM_RATIO[style.font] ?? 1.5);
   const outline = style.box ? 0 : style.outline * scale;
   const shadows: string[] = [];
-  if (style.shadow) shadows.push(`${style.shadow * scale}px ${style.shadow * scale}px 0 rgba(0,0,0,0.6)`);
+  if (style.shadow) shadows.push(`${style.shadow * scale}px ${style.shadow * scale}px 0 ${style.box ? "rgba(0,0,0,0.6)" : rgba(style.shadow_color ?? "#000000", 0.85)}`);
   const glow = style.glow || (effect === "glow" ? 10 : 0);
   if (glow && !style.box) {
     const c = style.glow ? (style.glow_color ?? "#000") : style.highlight;
@@ -53,6 +53,7 @@ export function textStyle(style: CaptionStyle, scale: number, effect: Effect = "
     fontFamily: `"HS ${style.font}", sans-serif`,
     fontSize: px,
     lineHeight: 1.15,
+    letterSpacing: (style.letter_spacing ?? 0) * scale,
     color: style.color,
     textTransform: style.uppercase ? "uppercase" : "none",
     WebkitTextStroke: outline ? `${outline * 2}px ${style.outline_color}` : undefined,
@@ -234,6 +235,7 @@ export function CaptionOverlay({
   seam,
   labels,
   progressPos = "bottom",
+  onCaptionMove,
   onTitleMove,
   forceTitle = false,
 }: {
@@ -251,6 +253,8 @@ export function CaptionOverlay({
   seam?: number | null;
   labels?: { top?: string; bottom?: string; enabled?: boolean } | null;
   progressPos?: "top" | "bottom";
+  /** When set, the captions can be dragged (sets style.pos). */
+  onCaptionMove?: (p: Pos) => void;
   /** When set, the title can be dragged; called with the new {x, y} (0-1). */
   onTitleMove?: (p: Pos) => void;
   /** Show the title even outside its time window (while editing it). */
@@ -361,15 +365,29 @@ export function CaptionOverlay({
         </div>
       ))}
       {content && style.pos && (
-        <div className="absolute" style={{ ...posStyle(style.pos, 56 * scale), maxWidth: "88%" }}>
-          <span key={chunkIndex} style={{ ...ts, display: "inline-block" }}>
+        <div
+          className={cx("absolute", onCaptionMove && "pointer-events-auto cursor-move rounded outline-dashed outline-2 outline-transparent hover:outline-white/70")}
+          style={{ ...posStyle(style.pos, 56 * scale), maxWidth: "88%" }}
+          onPointerDown={onCaptionMove ? (e) => startDrag(e, onCaptionMove) : undefined}
+          title={onCaptionMove ? "Drag to move the captions" : undefined}
+        >
+          <span key={chunkIndex} style={{ ...ts, display: "inline-block", rotate: style.rotation && effect !== "tilt" ? `${style.rotation}deg` : undefined }}>
             {content}
           </span>
         </div>
       )}
       {content && !style.pos && (
         <div
-          className="absolute inset-x-0 flex justify-center text-center"
+          className={cx("absolute inset-x-0 flex justify-center text-center", onCaptionMove && "pointer-events-auto cursor-move")}
+          onPointerDown={
+            onCaptionMove
+              ? (e) => {
+                  // first drag of a preset position: switch to a free position at the pointer
+                  const r = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
+                  onCaptionMove({ x: 0.5, y: +((e.clientY - r.top) / r.height).toFixed(3) });
+                }
+              : undefined
+          }
           style={{
             top: onSeam ? pos.top : pos.center ? "50%" : pos.top,
             bottom: pos.bottom,
@@ -383,7 +401,7 @@ export function CaptionOverlay({
               ...ts,
               display: "inline-block",
               opacity: (style.opacity ?? 1) * (style.animation === "fade" && chunk ? Math.min(1, (t - chunk.s) / 0.18, (chunk.e - t) / 0.18) : 1),
-              rotate: effect === "tilt" ? `${[-3, 2.5, -2, 3][chunkIndex % 4]}deg` : undefined,
+              rotate: effect === "tilt" ? `${[-3, 2.5, -2, 3][chunkIndex % 4]}deg` : style.rotation ? `${style.rotation}deg` : undefined,
               ["--cap-d" as string]: `${46 * scale}px`,
               animation: transition !== "none" ? `cap-${transition} ${transition === "bounce" ? 220 : 170}ms ease-out` : undefined,
             }}

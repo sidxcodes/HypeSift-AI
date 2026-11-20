@@ -34,7 +34,7 @@ const ANIMS: { id: TitleAnimation; label: string }[] = [
 
 type Ov = Overlay & Partial<TitleSpec>;
 
-function Group({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
+export function Group({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <section className="space-y-2.5 border-t border-border pt-4 first:border-0 first:pt-0">
       <div className="flex items-center justify-between">
@@ -46,7 +46,7 @@ function Group({ title, children, action }: { title: string; children: React.Rea
   );
 }
 
-function Slider({ label, value, min, max, step = 1, unit = "", onChange }: { label: string; value: number; min: number; max: number; step?: number; unit?: string; onChange: (v: number) => void }) {
+export function Slider({ label, value, min, max, step = 1, unit = "", onChange }: { label: string; value: number; min: number; max: number; step?: number; unit?: string; onChange: (v: number) => void }) {
   return (
     <label className="block text-[13px]">
       <span className="flex justify-between">
@@ -61,7 +61,7 @@ function Slider({ label, value, min, max, step = 1, unit = "", onChange }: { lab
   );
 }
 
-function Color({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+export function Color({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
     <div className="flex items-center gap-2">
       <span className="w-24 shrink-0 text-[13px]">{label}</span>

@@ -60,6 +60,9 @@ _BASE: dict[str, Any] = {
     "glow": 0,  # blurred halo radius (0 = off)
     "glow_color": "#000000",
     "opacity": 1.0,
+    "shadow_color": "#000000",
+    "letter_spacing": 0,  # px at 1080 wide
+    "rotation": 0,  # degrees, + = clockwise
 }
 
 
@@ -796,13 +799,18 @@ def build_ass(
             primary, secondary = ass_color(style["color"]), ass_color(style["highlight"])
         border_style = 3 if style["box"] else 1
         outline = max(6, int(size * 0.18)) if style["box"] else style["outline"] * k
-        back = ass_color(style["box_color"], style["box_opacity"]) if style["box"] else ass_color("#000000", 0.6)
+        back = (
+            ass_color(style["box_color"], style["box_opacity"])
+            if style["box"]
+            else ass_color(style.get("shadow_color") or "#000000", 0.85)
+        )
         out_col = (
             ass_color(style["box_color"], style["box_opacity"]) if style["box"] else ass_color(style["outline_color"])
         )
         family, bold, italic = _ASS_FONT.get(style["font"], (style["font"], 0, 0))
         lines.append(
-            f"Style: Cap,{family},{size},{primary},{secondary},{out_col},{back},{bold},{italic},0,0,100,100,0,0,"
+            f"Style: Cap,{family},{size},{primary},{secondary},{out_col},{back},{bold},{italic},0,0,100,100,"
+            f"{float(style.get('letter_spacing') or 0) * k:.1f},0,"
             f"{border_style},{outline:.1f},{style['shadow'] * k:.1f},{align},{int(70 * k)},{int(70 * k)},{margin_v},1"
         )
         anchor = (width // 2, {8: margin_v, 5: height // 2}.get(align, height - margin_v), align)
@@ -895,6 +903,8 @@ def _enter(style: dict, k: float, anchor: tuple[int, int, int], first: bool, ci:
         tags += f"\\shad{max(3, int(7 * k))}\\4c{ass_color(style['highlight'] if style['highlight'] != style['color'] else '#C6F432')}\\4a&H00&"
     elif eff == "tilt":
         tags += f"\\frz{(-3, 2.5, -2, 3)[ci % 4]}"
+    if eff != "tilt" and float(style.get("rotation") or 0):
+        tags += f"\\frz{-max(-45.0, min(45.0, float(style['rotation']))):.1f}"
     if style.get("opacity", 1.0) < 1:
         tags += f"\\1a{_alpha(style['opacity'])}"
     return "{" + tags + "}"

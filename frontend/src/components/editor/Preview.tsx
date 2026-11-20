@@ -46,12 +46,14 @@ type Props = {
   onCropDrag?: (x: number, y: number) => void;
   /** Text tool open: keep the title visible and let it be dragged. */
   onTitleMove?: (p: { x: number; y: number }) => void;
+  /** Captions tool open: drag the captions. */
+  onCaptionMove?: (p: { x: number; y: number }) => void;
   /** Format tool on a gameplay clip: drag the cam / game panel to pan it. */
   onLayoutDrag?: (panel: "cam" | "game", adj: PanelAdj) => void;
 };
 
 export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
-  { src, start, end, edits, reframe, chunks, style, onTime, onCropDrag, onTitleMove, onLayoutDrag },
+  { src, start, end, edits, reframe, chunks, style, onTime, onCropDrag, onTitleMove, onCaptionMove, onLayoutDrag },
   ref,
 ) {
   const video = useRef<HTMLVideoElement>(null);
@@ -289,6 +291,7 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
             progressBar={edits.progress_bar?.enabled ? edits.progress_bar.color ?? "#FF7A59" : null}
             progressPos={(edits.progress_bar as { position?: "top" | "bottom" } | undefined)?.position ?? "bottom"}
             onTitleMove={onTitleMove}
+            onCaptionMove={onCaptionMove}
             forceTitle={!!onTitleMove}
             duration={end - start}
             labels={edits.crop.mode === "compare" || edits.crop.mode === "pair" ? edits.labels : null}

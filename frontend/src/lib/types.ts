@@ -73,6 +73,9 @@ export type Effect = "none" | "glow" | "shadow3d" | "typewriter" | "tilt";
 
 export type CaptionStyle = {
   pos?: Pos | null;
+  shadow_color?: string;
+  letter_spacing?: number;
+  rotation?: number;
   label: string;
   font: string;
   size: number;

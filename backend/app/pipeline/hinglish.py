@@ -211,6 +211,8 @@ COMMON = {
     "इट्स": "it's",
     "इट": "it",
     "मैराथन": "marathon",
+    "मैराथॉन": "marathon",
+    "मैरथन": "marathon",
     "स्ट्रीम्स": "streams",
     "स्ट्रीमर": "streamer",
     "स्ट्रीमिंग": "streaming",
