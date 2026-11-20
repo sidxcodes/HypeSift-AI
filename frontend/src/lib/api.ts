@@ -159,7 +159,7 @@ export const DEFAULT_SETTINGS: GenerateSettings = {
   logo_pos: null,
   progress_position: "bottom",
   language: "auto",
-  caption_language: "original",
+  caption_language: "english",
   quality: "standard",
   silence_removal: false,
   context_padding: true,

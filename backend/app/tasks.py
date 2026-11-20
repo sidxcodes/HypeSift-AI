@@ -62,6 +62,45 @@ def load_rank_words(pid: str) -> list:
     return load_transcript(pid).words
 
 
+def caption_words(p: Project) -> list:
+    """Words burned in as captions: English (the translation, for non-English speech) unless the
+    project asked for captions in the spoken language."""
+    if (p.settings or {}).get("caption_language", "english") != "original" and storage.exists(
+        pkey(p.id, "rank_words.json")
+    ):
+        return load_rank_words(p.id)
+    return load_transcript(p.id).words
+
+
+def ensure_english(p: Project, ctx: JobContext | None = None) -> None:
+    """Projects made before English captions were kept: translate the speech once (Whisper) so
+    their clips can be re-rendered with English captions."""
+    if (p.settings or {}).get("caption_language", "english") == "original":
+        return
+    if storage.exists(pkey(p.id, "rank_words.json")):
+        return
+    tr = load_transcript(p.id)
+    if not tr.words or (tr.language or "en").split("-")[0] == "en":
+        return
+    src = source_path(p)
+    if not src.exists():
+        return
+    if ctx:
+        ctx.progress(0.02, "Translating speech to English for the captions (once per video)")
+    wav = storage.path(pkey(p.id, "audio_en.wav"))
+    try:
+        ffmpeg.extract_audio(src, wav)
+        llm.unload()
+        dur = ffmpeg.probe(src).duration
+        english = transcribe.transcribe(wav, tr.language, dur, task="translate").words
+        if english:
+            storage.path(pkey(p.id, "rank_words.json")).write_text(
+                json.dumps([[w.w, w.s, w.e] for w in english]), encoding="utf-8"
+            )
+    finally:
+        wav.unlink(missing_ok=True)
+
+
 def _scan_caption_words(pid: str) -> tuple[str, list] | None:
     path = storage.path(pkey(pid, "scan_words.json"))
     if not path.exists():
@@ -538,7 +577,7 @@ def generate(ctx: JobContext) -> None:
                 storage.path(pkey(p.id, "rank_words.json")).write_text(
                     json.dumps([[w.w, w.s, w.e] for w in english]), encoding="utf-8"
                 )
-            if settings.get("caption_language") == "english" and english:
+            if settings.get("caption_language", "english") != "original" and english:
                 tr.words = english
             elif scan and scan[0].split("-")[0] == lang:
                 # The site's own captions in the spoken language are cleaner than a small speech model.
@@ -729,7 +768,7 @@ def discover(ctx: JobContext) -> None:
         db.add_all(new)
         db.commit()
         ids = [c.id for c in new]
-    _render_and_publish(ctx, p.id, ids, tr.words, settings)
+    _render_and_publish(ctx, p.id, ids, caption_words(p), settings)
 
 
 @handler("render")
@@ -743,7 +782,8 @@ def render_job(ctx: JobContext) -> None:
         project = db.get(Project, clip.project_id)
         clip.render_status = "rendering"
         db.commit()
-        words = load_transcript(project.id).words
+        ensure_english(project, ctx)
+        words = caption_words(project)
         render_clip(ctx, clip, project, words, on_progress=ctx.progress)
         db.commit()
 

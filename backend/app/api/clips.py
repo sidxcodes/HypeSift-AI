@@ -13,7 +13,7 @@ from ..pipeline.render import default_chunks
 from ..schemas import ClipEditIn, FavoriteIn, FeedbackIn, PublishIn, PublishUpdateIn
 from ..serializers import clip_out, job_out, project_out
 from ..storage import storage
-from ..tasks import load_signals, load_transcript, pkey
+from ..tasks import caption_words, load_signals, pkey
 
 router = APIRouter(prefix="/api/clips", tags=["clips"])
 
@@ -66,12 +66,12 @@ def library(
 def get_one(cid: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     c = get_clip(db, cid, user)
     p = c.project
-    tr = load_transcript(p.id)
+    all_words = caption_words(p)
     lo, hi = max(0.0, c.start - 60), c.end + 60
-    words = [[w.w, w.s, w.e] for w in tr.words if lo <= w.s <= hi]
+    words = [[w.w, w.s, w.e] for w in all_words if lo <= w.s <= hi]
     edits = c.edits or {}
     ce = edits.get("captions") or {}
-    chunks = ce.get("chunks") or default_chunks(tr.words, c.start, c.end, ce.get("preset", "bold_creator"))
+    chunks = ce.get("chunks") or default_chunks(all_words, c.start, c.end, ce.get("preset", "bold_creator"))
     env = None
     if storage.exists(pkey(p.id, "signals.npz")):
         sig = load_signals(p.id)
