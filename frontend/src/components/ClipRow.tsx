@@ -26,7 +26,16 @@ import { fmtTime } from "@/lib/api";
 import type { Clip, Goal } from "@/lib/types";
 import { cx } from "./ui";
 
-const GOAL_DIM: Partial<Record<Goal, string>> = { views: "viral", trust: "context", educate: "context", entertain: "emotion" };
+/** Media links are re-signed on every refresh; keep the first link until the file itself changes,
+ * so a playing video isn't reloaded while the page polls. */
+function StableVideo({ src, poster }: { src: string; poster?: string }) {
+  const fileKey = src.split("&exp=")[0];
+  const [kept, setKept] = useState({ fileKey, src });
+  if (kept.fileKey !== fileKey) setKept({ fileKey, src }); // a new render: switch to the new file
+  return <video key={kept.fileKey} src={kept.src} poster={poster} controls playsInline preload="none" className="aspect-[9/16] w-full object-cover" />;
+}
+
+const GOAL_DIM: Partial<Record<Goal, string>> ={ views: "viral", trust: "context", educate: "context", entertain: "emotion" };
 
 function Chip({ icon: Icon, value, label, active, tone }: { icon: typeof Flame; value: number; label: string; active?: boolean; tone: string }) {
   return (
@@ -90,10 +99,17 @@ export function ClipRow({
       />
       <div className={cx("relative shrink-0 self-start overflow-hidden rounded-xl bg-black", compact ? "w-[104px]" : "w-[150px]")}>
         {clip.video_url ? (
-          <video src={clip.video_url} poster={clip.thumb_url ?? undefined} controls playsInline preload="none" className="aspect-[9/16] w-full object-cover" />
+          <StableVideo src={clip.video_url} poster={clip.thumb_url ?? undefined} />
         ) : (
           <div className="grid aspect-[9/16] place-items-center text-xs text-white/70">
             {clip.render_status === "failed" ? "Render failed" : <Loader2 className="size-5 animate-spin" />}
+          </div>
+        )}
+        {rendering && clip.video_url && (
+          <div className="absolute inset-0 grid place-items-center bg-black/55 p-2 text-center text-[11px] font-medium text-white">
+            <span className="flex flex-col items-center gap-1.5">
+              <Loader2 className="size-5 animate-spin" /> Updating with your edits…
+            </span>
           </div>
         )}
       </div>

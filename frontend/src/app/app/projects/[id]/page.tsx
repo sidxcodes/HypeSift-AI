@@ -93,7 +93,7 @@ export default function ProjectPage() {
     load();
   }, [load]);
 
-  const busy = jobs.length > 0 || p?.status === "processing" || p?.status === "queued" || p?.clips?.some((c) => c.render_status === "rendering");
+  const busy = jobs.length > 0 || p?.status === "processing" || p?.status === "queued" || p?.clips?.some((c) => c.render_status === "rendering" || c.render_status === "pending");
   useEffect(() => {
     if (!busy) return;
     const i = setInterval(load, 1500);

@@ -14,7 +14,7 @@ import {
   Undo2,
 } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Assistant } from "@/components/Assistant";
 import { useSession } from "@/components/AppShell";
@@ -57,6 +57,7 @@ const DEFAULT_EDITS: Edits = {
 
 export default function EditorPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const toast = useToast();
   const { meta } = useSession();
   const [detail, setDetail] = useState<ClipDetail | null>(null);
@@ -100,12 +101,22 @@ export default function EditorPage() {
       const j = await api.job(job.id);
       setJob(j);
       if (j.status === "succeeded") {
-        toast("success", "Render finished — your clip is ready to download.");
+        toast("success", "Saved. Your clip is updated everywhere.");
         load();
       } else if (j.status === "failed") toast("error", j.error ?? "Render failed.");
     }, 1000);
     return () => clearInterval(i);
   }, [job, load, toast]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
 
   const s = hist.now;
   const words = useMemo(() => detail?.words ?? [], [detail]);
@@ -144,6 +155,11 @@ export default function EditorPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (dirty) save();
+        return;
+      }
       if (tag === "INPUT" || tag === "TEXTAREA") return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -188,11 +204,22 @@ export default function EditorPage() {
       const r = await api.updateClip(id, { start: s.start, end: s.end, title: s.title, edits, render });
       setDirty(false);
       if (r.job) setJob(r.job);
-      else toast("success", "Draft saved.");
       if (!render) load();
+      return true;
     } catch (e) {
       toast("error", (e as Error).message);
+      return false;
     }
+  };
+  // One button: store every edit and rebuild the video, so the clip is updated everywhere.
+  const save = () => exportClip(true);
+  const back = async () => {
+    if (dirty) {
+      if (window.confirm("You have unsaved changes. Save them before leaving?\n\nOK = save, Cancel = leave without saving")) {
+        if (!(await save())) return;
+      }
+    }
+    router.push(`/app/projects/${detail?.clip.project_id ?? ""}`);
   };
 
   if (error) return <Card className="p-8 text-center text-sm text-muted">{error}</Card>;
@@ -214,9 +241,9 @@ export default function EditorPage() {
       {/* Top bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <Link href={`/app/projects/${clip.project_id}`} className="grid size-9 place-items-center rounded-xl text-muted hover:bg-surface-2 hover:text-text" aria-label="Back to project">
+          <button onClick={back} className="grid size-9 place-items-center rounded-xl text-muted hover:bg-surface-2 hover:text-text cursor-pointer" aria-label="Back to project">
             <ArrowLeft className="size-5" />
-          </Link>
+          </button>
           <div className="min-w-0">
             <input
               value={s.title}
@@ -236,11 +263,14 @@ export default function EditorPage() {
           <Button variant="ghost" size="sm" onClick={redo} disabled={!hist.future.length} aria-label="Redo">
             <Redo2 className="size-4" />
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => exportClip(false)} disabled={!dirty || !!rendering}>
-            Save draft
-          </Button>
-          <Button size="sm" onClick={() => exportClip(true)} loading={!!rendering}>
-            {rendering ? "Rendering…" : "Render & export"}
+          <Button
+            onClick={save}
+            loading={!!rendering}
+            disabled={!!rendering || (!dirty && clip.render_status === "rendered")}
+            className="min-w-28"
+            title="Save all edits (Ctrl+S)"
+          >
+            {rendering ? `Saving… ${Math.round((job?.progress ?? 0) * 100)}%` : dirty || clip.render_status !== "rendered" ? "Save" : "Saved ✓"}
           </Button>
         </div>
       </div>
@@ -248,7 +278,7 @@ export default function EditorPage() {
       {rendering && job && (
         <Card className="flex items-center gap-3 px-4 py-3">
           <Loader2 className="size-4 animate-spin text-primary" />
-          <span className="text-sm">{job.message || "Rendering"}</span>
+          <span className="text-sm">Saving your edits into the video{job.message ? ` · ${job.message}` : ""}</span>
           <Progress value={job.progress} className="flex-1" />
           <span className="w-10 text-right text-sm tabular-nums text-muted">{Math.round(job.progress * 100)}%</span>
         </Card>
