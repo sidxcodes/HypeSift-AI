@@ -458,12 +458,35 @@ def render(
     if float(v.get("fade_out") or 0) > 0:
         d = float(v["fade_out"])
         vf.append(f"fade=t=out:st={max(0, out_dur - d):.2f}:d={d:.2f}")
-    vf.append("format=yuv420p")
-    graph.append(f"{vlast}{','.join(vf)}[vout]")
     music = edits.get("music") or {}
     music_path = Path(music["path"]) if music.get("path") else None
     has_music = bool(music_path and music_path.exists())
     mus_idx = nxt
+    # colour emoji in the hook title: images laid over the invisible glyphs libass leaves
+    emo = []
+    for o in overlays:
+        if o.get("kind") == "title":
+            emo += cap.title_emoji(o, W, H, layout_seam(edits, rf))
+    emo_files = []
+    if emo:
+        from . import emoji as emoji_mod
+
+        graph.append(f"{vlast}{','.join(vf)}[vtxt]")
+        cur, base = "[vtxt]", nxt + (1 if has_music else 0)
+        for i, em in enumerate(emo):
+            f = work_dir / f"emoji_{i}.png"
+            w, h = emoji_mod.render_png(em["emoji"], em["fs"], f)
+            emo_files.append(f)
+            x, y = int(em["cx"] - w / 2), int(em["cy"] - h / 2)
+            nxt_lab = "[vout]" if i == len(emo) - 1 else f"[ve{i}]"
+            graph.append(
+                f"{cur}[{base + i}:v]overlay={x}:{y}:enable='between(t,{em['start']:.2f},{em['end']:.2f})'"
+                + (",format=yuv420p" if nxt_lab == "[vout]" else "")
+                + nxt_lab
+            )
+            cur = nxt_lab
+    else:
+        graph.append(f"{vlast}{','.join(vf)}[vout]")
     if has_music:
         vol = max(0.02, min(1.0, float(music.get("volume") or 0.16)))
         graph.append(f"[{mus_idx}:a]atrim=0:{out_dur:.3f},volume={vol:.3f},aresample=48000[mus]")
@@ -513,6 +536,8 @@ def render(
         args += ["-i", str(logo_path)]
     if has_music:
         args += ["-stream_loop", "-1", "-i", str(music_path)]
+    for f in emo_files:
+        args += ["-i", str(f)]
     args += [
         "-/filter_complex",
         "graph.txt",

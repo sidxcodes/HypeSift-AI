@@ -574,6 +574,71 @@ def _key_words(words: list[str], keywords: set[str]) -> set[int]:
     return set(sorted(pick)[:3])
 
 
+def _title_geom(ov: dict, spec: dict, width: int, height: int, seam: float | None) -> tuple[int, int, float, float]:
+    """(x anchor, block centre y, ASS font size, line height) in output pixels."""
+    k = width / 1080
+    pos = ov.get("pos") or {}
+    dx = {"left": 0.07, "center": 0.5, "right": 0.93}[spec["align"]]
+    x = int(max(0.0, min(1.0, float(pos.get("x", dx)))) * width)
+    # default: just above the join of stacked panels (captions sit on the join), else the upper fifth
+    dy = 0.2 if seam is None else (seam - 0.11 if seam > 0.3 else seam + 0.11)
+    y0 = int(max(0.03, min(0.97, float(pos.get("y", dy)))) * height)
+    fs = spec["size"] * k
+    return x, y0, fs, fs * spec["line_spacing"]
+
+
+def title_emoji(ov: dict, width: int, height: int, seam: float | None) -> list[dict]:
+    """Where each emoji of the title goes (centre, size) so a colour image can be laid over the
+    invisible glyph libass leaves; [] when there are none or no colour emoji font is installed."""
+    from . import emoji
+
+    if not emoji.available():
+        return []
+    spec = resolve_title(ov)
+    lines = title_lines(ov, spec)
+    if not any(emoji.has_emoji(ln) for ln in lines):
+        return []
+    x, y0, fs, lineh = _title_geom(ov, spec, width, height, seam)
+    font_path = emoji.FONTS_DIR / FONT_FILES[spec["font"]]
+    fsp = spec["letter_spacing"] * width / 1080
+    s, e = float(ov.get("start", 0)), float(ov.get("end", 3.0))
+    delay = {"pop": 0.3, "slam": 0.24, "flicker": 0.19, "slide_up": 0.2, "fade": 0.12}.get(spec["animation"], 0.0)
+    n = len(lines)
+    out = []
+    for i, line in enumerate(lines):
+        y = y0 + (i - (n - 1) / 2) * lineh
+        segs = emoji.runs(line)
+        widths = [emoji.emoji_width(fs, t) if is_e else emoji.text_width(font_path, fs, t) for is_e, t in segs]
+        glyphs = [1 if is_e else len(t) for is_e, t in segs]
+        total = sum(widths) + fsp * sum(glyphs)
+        cur = {"left": x, "center": x - total / 2, "right": x - total}[spec["align"]]
+        for (is_e, t), w, g in zip(segs, widths, glyphs, strict=True):
+            if is_e:
+                out.append(
+                    {"emoji": t, "cx": cur + w / 2, "cy": y, "fs": fs, "start": s + min(delay, (e - s) / 2), "end": e}
+                )
+            cur += w + fsp * g
+    return out
+
+
+def _title_word(w: str, font: str, a3: str, a4: str, restore: str | None = None) -> str:
+    """A title word for libass: emoji made invisible (in the colour emoji font, so they keep their
+    width) when a colour copy will be laid over them; otherwise as is."""
+    from . import emoji
+
+    if not emoji.available() or not emoji.has_emoji(w):
+        return _esc(w)
+    parts = []
+    for is_e, t in emoji.runs(w):
+        if is_e:
+            parts.append(
+                f"{{\\fn{emoji.EMOJI_FAMILY}\\1a&HFF&\\3a&HFF&\\4a&HFF&}}{t}{{\\fn{font}{restore or f'\\1a&H00&\\3a{a3}\\4a{a4}'}}}"
+            )
+        else:
+            parts.append(_esc(t))
+    return "".join(parts)
+
+
 def title_events(ov: dict, width: int, height: int, seam: float | None, keywords: set[str] | None = None) -> list[str]:
     """The hook title as ASS events: one event per line (so alignment, line spacing and per-word
     colours are exact), plus an optional glow layer."""
@@ -585,15 +650,8 @@ def title_events(ov: dict, width: int, height: int, seam: float | None, keywords
     s, e = float(ov.get("start", 0)), float(ov.get("end", 3.0))
     ms = max(1, int((e - s) * 1000))
     align = spec["align"]
-    pos = ov.get("pos") or {}
-    dx = {"left": 0.07, "center": 0.5, "right": 0.93}[align]
-    x = int(max(0.0, min(1.0, float(pos.get("x", dx)))) * width)
-    # default: just above the join of stacked panels (captions sit on the join), else the upper fifth
-    dy = 0.2 if seam is None else (seam - 0.11 if seam > 0.3 else seam + 0.11)
-    y0 = int(max(0.03, min(0.97, float(pos.get("y", dy)))) * height)
+    x, y0, fs, lineh = _title_geom(ov, spec, width, height, seam)
     an = {"left": 4, "center": 5, "right": 6}[align]
-    fs = spec["size"] * k
-    lineh = fs * spec["line_spacing"]
     n = len(lines)
     box = spec["box"]
     a3 = _alpha(spec["box_opacity"]) if box else "&H00&"
@@ -621,7 +679,7 @@ def title_events(ov: dict, width: int, height: int, seam: float | None, keywords
         y = int(y0 + (i - (n - 1) / 2) * lineh)
         parts = []
         for w in line.split():
-            t = _esc(w)
+            t = _title_word(w, spec["font"], a3, a4)
             if anim == "typewriter":
                 at = int(min(ms * 0.6, wi * 110))
                 t = f"{{{hide}\\t({at},{at + 1},{show})}}{t}"
@@ -659,7 +717,7 @@ def title_events(ov: dict, width: int, height: int, seam: float | None, keywords
         if spec["glow"] > 0 and not box:
             g = spec["glow"] * k
             gmo = mo.replace(show, "\\1a&HFF&\\3a&H20&").replace("\\alpha&H90&", "\\3a&HB0&")
-            plain = " ".join(_esc(w) for w in line.split())
+            plain = " ".join(_title_word(w, spec["font"], a3, a4, "\\1a&HFF&\\3a&H20&") for w in line.split())
             out.append(
                 f"Dialogue: 4,{ts(s)},{ts(e)},Title,,0,0,0,,{{{common}\\1a&HFF&\\3c{ass_color(spec['glow_color'])}"
                 f"\\3a&H20&\\bord{spec['outline'] * k + g * 0.7:.1f}\\blur{g:.1f}\\shad0{gmo}}}{plain}"
