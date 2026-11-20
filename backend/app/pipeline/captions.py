@@ -347,14 +347,123 @@ EFFECTS = {
 
 POSITIONS = {"top": (8, 0.12), "middle": (5, 0.0), "lower": (2, 0.24), "bottom": (2, 0.12)}
 
-# Hook title designs (first ~3 s of every clip)
+# Hook title designs (first ~3 s of every clip). A design is just a set of defaults: every field
+# below can be overridden per title from the editor (Canva-style), and the browser preview uses the
+# same rules (frontend/src/lib/title.ts) so what you see is what gets exported.
 TITLE_STYLES = {
     "impact": "Impact pop",  # chunky comic font, coloured key words, thick outline, pops in
     "box": "Bold box",  # brand-colour box, black text, slight tilt, slams in
     "neon": "Neon glow",  # white text with a coloured glow, flickers on
-    "minimal": "Minimal",  # clean fade
+    "minimal": "Minimal",  # clean text on a soft dark box
 }
 TITLE_ACCENTS = ["#FFD60A", "#FF3B30", "#34C759", "#3FA9FF"]
+TITLE_ANIMATIONS = ["pop", "slam", "fade", "slide_up", "flicker", "typewriter", "none"]
+TITLE_BASE: dict[str, Any] = {
+    "font": "Poppins ExtraBold",
+    "size": 90,  # px at 1080 wide
+    "color": "#FFFFFF",
+    "uppercase": False,
+    "outline": 0,
+    "outline_color": "#000000",
+    "shadow": 0,
+    "shadow_color": "#000000",
+    "box": False,
+    "box_color": "#000000",
+    "box_opacity": 0.7,
+    "box_pad": 16,
+    "glow": 0,
+    "glow_color": "#3FA9FF",
+    "animation": "pop",
+    "rotation": 0.0,
+    "line_spacing": 1.0,
+    "letter_spacing": 0.0,
+    "align": "center",
+    "auto_colors": False,
+    "word_colors": None,  # {"word index": "#hex"}; None = automatic
+    "wrap": "auto",  # auto | one (manual line breaks always win)
+}
+TITLE_PRESETS: dict[str, dict[str, Any]] = {
+    "impact": {"font": "Luckiest Guy", "size": 104, "uppercase": True, "outline": 11, "shadow": 5, "auto_colors": True},
+    "box": {
+        "font": "Archivo Black", "size": 76, "color": "#101010", "uppercase": True, "shadow": 8, "box": True,
+        "box_color": "#FFD60A", "box_opacity": 1.0, "box_pad": 20, "animation": "slam", "rotation": -2.0,
+        "line_spacing": 1.25,
+    },
+    "neon": {
+        "size": 100, "uppercase": True, "outline": 3, "outline_color": "#3FA9FF", "glow": 22, "animation": "flicker",
+        "line_spacing": 1.1,
+    },
+    "minimal": {"size": 92, "box": True, "box_opacity": 0.69, "box_pad": 18, "animation": "fade", "line_spacing": 1.3},
+}  # fmt: skip
+_HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def resolve_title(ov: dict) -> dict[str, Any]:
+    """Design defaults + the creator's overrides, clamped to sane values."""
+    design = ov.get("style") if ov.get("style") in TITLE_STYLES else "impact"
+    spec = {**TITLE_BASE, **TITLE_PRESETS[design]}
+    for k in TITLE_BASE:
+        if ov.get(k) is not None:
+            spec[k] = ov[k]
+    if ov.get("size_scale"):  # older titles
+        spec["size"] = spec["size"] * max(0.5, min(2.0, float(ov["size_scale"])))
+    legacy = ov.get("bg")
+    if (
+        legacy
+        and _HEX.match(str(legacy))
+        and str(legacy).upper() != "#C6F432"
+        and ov.get("box_color") is None
+        and spec["box"]
+    ):
+        spec["box_color"] = legacy
+    for c in ("color", "outline_color", "shadow_color", "box_color", "glow_color"):
+        if not _HEX.match(str(spec[c])):
+            spec[c] = TITLE_BASE[c] if c != "box_color" else "#000000"
+    if spec["font"] not in FONT_FILES:
+        spec["font"] = TITLE_PRESETS[design].get("font", TITLE_BASE["font"])
+    num = lambda k, lo, hi: max(lo, min(hi, float(spec[k] or 0)))  # noqa: E731
+    spec.update(
+        size=num("size", 24, 240), outline=num("outline", 0, 40), shadow=num("shadow", 0, 40), glow=num("glow", 0, 60),
+        box_pad=num("box_pad", 0, 60), box_opacity=num("box_opacity", 0, 1), rotation=num("rotation", -45, 45),
+        line_spacing=num("line_spacing", 0.6, 2.5), letter_spacing=num("letter_spacing", -10, 40),
+    )  # fmt: skip
+    if spec["align"] not in ("left", "center", "right"):
+        spec["align"] = "center"
+    if spec["animation"] not in TITLE_ANIMATIONS:
+        spec["animation"] = "pop"
+    spec["design"] = design
+    return spec
+
+
+def split_title(text: str, max_chars: int) -> list[str]:
+    """Balanced 1-3 lines (same algorithm as the browser preview)."""
+    words = text.split()
+    if len(text) <= max_chars or len(words) < 2:
+        return [text]
+    best, cut = 1e9, 1
+    for i in range(1, len(words)):
+        d = abs(len(" ".join(words[:i])) - len(" ".join(words[i:])))
+        if d < best:
+            best, cut = d, i
+    lines = [" ".join(words[:cut]), " ".join(words[cut:])]
+    if max(len(x) for x in lines) > max_chars * 1.6 and len(words) >= 3:
+        n = len(words)
+        lines = [" ".join(words[: n // 3]), " ".join(words[n // 3 : 2 * n // 3]), " ".join(words[2 * n // 3 :])]
+    return lines
+
+
+def title_lines(ov: dict, spec: dict) -> list[str]:
+    raw = str(ov.get("text", "")).replace("\r", "")
+    if spec["uppercase"]:
+        raw = raw.upper()
+    if "\n" in raw:  # the creator's own line breaks
+        return [ln.strip() for ln in raw.split("\n") if ln.strip()]
+    raw = " ".join(raw.split())
+    if spec["wrap"] == "one":
+        return [raw] if raw else []
+    return split_title(raw, max(8, min(40, round(1600 / spec["size"])))) if raw else []
+
+
 _STOP = set(
     [
         "a",
@@ -449,23 +558,6 @@ def anchor_for(pos: dict | None, width: int, height: int, default: tuple[int, in
     return int(x * width), int(y * height), 5
 
 
-def _title_lines(text: str, max_line: int = 16) -> list[str]:
-    words = text.split()
-    if len(text) <= max_line or len(words) < 2:
-        return [text]
-    best, cut = 1e9, 1
-    for i in range(1, len(words)):
-        a, b = " ".join(words[:i]), " ".join(words[i:])
-        d = abs(len(a) - len(b))
-        if d < best:
-            best, cut = d, i
-    lines = [" ".join(words[:cut]), " ".join(words[cut:])]
-    if max(len(x) for x in lines) > max_line * 1.6 and len(words) >= 3:
-        n = len(words)
-        lines = [" ".join(words[: n // 3]), " ".join(words[n // 3 : 2 * n // 3]), " ".join(words[2 * n // 3 :])]
-    return lines
-
-
 def _key_words(words: list[str], keywords: set[str]) -> set[int]:
     """Indexes of the 1-3 words worth colouring: numbers, the clip's keywords, then the longest."""
     clean = [re.sub(r"[^a-z0-9$%]", "", w.lower()) for w in words]
@@ -479,78 +571,93 @@ def _key_words(words: list[str], keywords: set[str]) -> set[int]:
 
 
 def title_events(ov: dict, width: int, height: int, seam: float | None, keywords: set[str] | None = None) -> list[str]:
-    """The hook title: a designed, animated title card."""
-    k = width / 1080
-    text = _esc(str(ov.get("text", "")).strip())
-    if not text:
+    """The hook title as ASS events: one event per line (so alignment, line spacing and per-word
+    colours are exact), plus an optional glow layer."""
+    spec = resolve_title(ov)
+    lines = title_lines(ov, spec)
+    if not lines:
         return []
+    k = width / 1080
     s, e = float(ov.get("start", 0)), float(ov.get("end", 3.0))
-    design = ov.get("style") if ov.get("style") in TITLE_STYLES else "impact"
-    default_y = seam if seam is not None else 0.2
-    x, y, an = anchor_for(ov.get("pos"), width, height, (width // 2, int(height * default_y), 5))
-    accent = ov.get("bg") if ov.get("bg") and ov.get("bg") not in ("#C6F432",) else None
-    scale = max(0.6, min(1.6, float(ov.get("size_scale") or 1.0)))
+    ms = max(1, int((e - s) * 1000))
+    align = spec["align"]
+    pos = ov.get("pos") or {}
+    dx = {"left": 0.07, "center": 0.5, "right": 0.93}[align]
+    x = int(max(0.0, min(1.0, float(pos.get("x", dx)))) * width)
+    y0 = int(max(0.03, min(0.97, float(pos.get("y", seam if seam is not None else 0.2)))) * height)
+    an = {"left": 4, "center": 5, "right": 6}[align]
+    fs = spec["size"] * k
+    lineh = fs * spec["line_spacing"]
+    n = len(lines)
+    box = spec["box"]
+    a3 = _alpha(spec["box_opacity"]) if box else "&H00&"
+    a4 = "&H60&" if box else "&H00&"
+    show = f"\\1a&H00&\\3a{a3}\\4a{a4}"
+    hide = "\\alpha&HFF&"
+    out_fade = f"\\t({max(1, ms - 220)},{ms},{hide})"
+    anim = spec["animation"]
+
+    # per-word colours (global word index across lines)
+    words_all = [w for ln in lines for w in ln.split()]
+    colors: dict[int, str] = {}
+    if isinstance(spec["word_colors"], dict):
+        for key, col in spec["word_colors"].items():
+            if str(key).isdigit() and _HEX.match(str(col)):
+                colors[int(key)] = str(col)
+    elif spec["auto_colors"]:
+        for ci, wi in enumerate(sorted(_key_words(words_all, keywords or set()))):
+            colors[wi] = TITLE_ACCENTS[ci % len(TITLE_ACCENTS)]
+    base_col = ass_color(spec["color"])
+    style_name = "TitleBox" if box else "Title"
     out: list[str] = []
-    ms = int((e - s) * 1000)
-    if design == "impact":
-        upper = text.upper()
-        lines = _title_lines(upper, 15)
-        words_all = upper.split()
-        keys = _key_words(words_all, keywords or set())
-        palette = [accent] + TITLE_ACCENTS if accent else TITLE_ACCENTS
-        size = int(104 * k * scale * (0.86 if len(lines) == 3 else 1))
-        body, wi, ci = [], 0, 0
-        for line in lines:
-            parts = []
-            for w in line.split():
-                if wi in keys:
-                    parts.append(f"{{\\1c{ass_color(palette[ci % len(palette)])}}}{w}{{\\1c&HFFFFFF&}}")
-                    ci += 1
-                else:
-                    parts.append(w)
-                wi += 1
-            body.append(" ".join(parts))
-        tags = (
-            f"\\an{an}\\pos({x},{y})\\fn Luckiest Guy\\fs{size}\\bord{11 * k * scale:.1f}\\shad{5 * k:.1f}"
-            f"\\4c&H000000&\\3c&H000000&\\1c&HFFFFFF&\\frz-2\\fscx0\\fscy0"
-            f"\\t(0,170,\\fscx122\\fscy122)\\t(170,300,\\fscx100\\fscy100\\frz0)"
-            f"\\t({max(300, ms - 220)},{ms},\\fscx108\\fscy108\\alpha&HFF&)"
+    wi = 0
+    for i, line in enumerate(lines):
+        y = int(y0 + (i - (n - 1) / 2) * lineh)
+        parts = []
+        for w in line.split():
+            t = _esc(w)
+            if anim == "typewriter":
+                at = int(min(ms * 0.6, wi * 110))
+                t = f"{{{hide}\\t({at},{at + 1},{show})}}{t}"
+            if wi in colors:
+                t = f"{{\\1c{ass_color(colors[wi])}}}{t}{{\\1c{base_col}}}"
+            parts.append(t)
+            wi += 1
+        body = " ".join(parts)
+        place = f"\\an{an}\\pos({x},{y})"
+        if anim == "slide_up":
+            place = f"\\an{an}\\move({x},{y + int(56 * k)},{x},{y},0,260)"
+        common = (
+            f"{place}\\org({x},{y0})\\fn{spec['font']}\\fs{fs:.0f}\\fsp{spec['letter_spacing'] * k:.1f}"
+            f"\\frz{-spec['rotation']:.1f}\\1c{base_col}\\4c{ass_color(spec['shadow_color'])}"
         )
-        out.append(f"Dialogue: 5,{ts(s)},{ts(e)},Title,,0,0,0,,{{{tags}}}" + "\\N".join(body))
-    elif design == "box":
-        col = accent or "#FFD60A"
-        size = int(76 * k * scale)
-        lines = _title_lines(text.upper(), 20)
-        tags = (
-            f"\\an{an}\\pos({x},{y})\\fn Archivo Black\\fs{size}\\bord{20 * k * scale:.1f}\\shad{8 * k:.1f}"
-            f"\\1c&H101010&\\3c{ass_color(col)}\\4c&H000000&\\4a&H60&\\frz3\\fscx160\\fscy160\\alpha&HFF&"
-            f"\\t(0,140,\\fscx96\\fscy96\\alpha&H00&\\frz-2)\\t(140,240,\\fscx100\\fscy100)"
-            f"\\t({max(240, ms - 200)},{ms},\\alpha&HFF&)"
-        )
-        out.append(f"Dialogue: 5,{ts(s)},{ts(e)},TitleBox,,0,0,0,,{{{tags}}}" + "\\N".join(lines))
-    elif design == "neon":
-        col = accent or "#3FA9FF"
-        size = int(100 * k * scale)
-        lines = _title_lines(text.upper(), 16)
-        base = f"\\an{an}\\pos({x},{y})\\fn Poppins ExtraBold\\fs{size}\\shad0"
-        fade = f"\\t({max(200, ms - 220)},{ms},\\alpha&HFF&)"
-        # outer halo (border only, heavily blurred), then a tighter glow, then crisp white text
-        halo = f"{base}\\1a&HFF&\\3c{ass_color(col)}\\3a&HFF&\\bord{26 * k * scale:.1f}\\blur{22 * k:.1f}"
-        halo += f"\\t(0,60,\\3a&H20&)\\t(60,110,\\3a&HB0&)\\t(110,190,\\3a&H20&){fade}"
-        inner = f"{base}\\1a&HFF&\\3c{ass_color(col)}\\3a&HFF&\\bord{9 * k * scale:.1f}\\blur{5 * k:.1f}"
-        inner += f"\\t(0,60,\\3a&H00&)\\t(60,110,\\3a&HA0&)\\t(110,190,\\3a&H00&){fade}"
-        crisp = f"{base}\\1c&HFFFFFF&\\bord0\\alpha&HFF&\\t(0,60,\\alpha&H00&)\\t(60,110,\\alpha&H90&)"
-        crisp += f"\\t(110,190,\\alpha&H00&){fade}"
-        for layer, tags in ((3, halo), (4, inner), (5, crisp)):
-            out.append(f"Dialogue: {layer},{ts(s)},{ts(e)},Title,,0,0,0,,{{{tags}}}" + "\\N".join(lines))
-    else:  # minimal: clean white text on a soft dark box
-        col = ass_color(ov.get("color", "#FFFFFF"))
-        size = int(92 * k * scale)
-        tags = (
-            f"\\an{an}\\pos({x},{y})\\fn Poppins ExtraBold\\fs{size}\\1c{col}\\3c&H000000&\\3a&H50&"
-            f"\\bord{18 * k * scale:.1f}\\shad0\\fad(250,250)"
-        )
-        out.append(f"Dialogue: 5,{ts(s)},{ts(e)},TitleBox,,0,0,0,,{{{tags}}}" + "\\N".join(_title_lines(text, 18)))
+        if box:
+            look = f"\\3c{ass_color(spec['box_color'])}\\bord{spec['box_pad'] * k:.1f}\\shad{spec['shadow'] * k:.1f}"
+        else:
+            look = (
+                f"\\3c{ass_color(spec['outline_color'])}\\bord{spec['outline'] * k:.1f}\\shad{spec['shadow'] * k:.1f}"
+            )
+        if anim == "pop":
+            mo = f"\\fscx0\\fscy0\\t(0,170,\\fscx122\\fscy122)\\t(170,300,\\fscx100\\fscy100){out_fade}"
+        elif anim == "slam":
+            mo = f"\\fscx160\\fscy160{hide}\\t(0,140,\\fscx96\\fscy96{show})\\t(140,240,\\fscx100\\fscy100){out_fade}"
+        elif anim == "flicker":
+            mo = f"{hide}\\t(0,60,{show})\\t(60,110,\\alpha&H90&)\\t(110,190,{show}){out_fade}"
+        elif anim in ("fade", "slide_up"):
+            mo = "\\fad(250,250)"
+        elif anim == "typewriter":
+            mo = "\\fad(0,200)"
+        else:
+            mo = ""
+        out.append(f"Dialogue: 5,{ts(s)},{ts(e)},{style_name},,0,0,0,,{{{common}{look}{mo}}}{body}")
+        if spec["glow"] > 0 and not box:
+            g = spec["glow"] * k
+            gmo = mo.replace(show, "\\1a&HFF&\\3a&H20&").replace("\\alpha&H90&", "\\3a&HB0&")
+            plain = " ".join(_esc(w) for w in line.split())
+            out.append(
+                f"Dialogue: 4,{ts(s)},{ts(e)},Title,,0,0,0,,{{{common}\\1a&HFF&\\3c{ass_color(spec['glow_color'])}"
+                f"\\3a&H20&\\bord{spec['outline'] * k + g * 0.7:.1f}\\blur{g:.1f}\\shad0{gmo}}}{plain}"
+            )
     return out
 
 

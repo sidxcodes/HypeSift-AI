@@ -284,7 +284,12 @@ def render_clip(ctx: JobContext | None, clip: Clip, project: Project, words, on_
             on_progress=on_progress,
             should_cancel=ctx.cancelled if ctx else None,
         )
-        cover_t = render.cover_time(storage.path(out_key), 0, info["duration"])
+        title_ov = next((o for o in edits.get("overlays") or [] if o.get("kind") == "title" and o.get("text")), None)
+        if title_ov:  # the cover shows the hook title (fully in, after its entrance animation)
+            t0, t1 = float(title_ov.get("start", 0)), float(title_ov.get("end", 3))
+            cover_t = min(info["duration"] - 0.1, t0 + min(0.9, max(0.35, (t1 - t0) * 0.4)))
+        else:
+            cover_t = render.cover_time(storage.path(out_key), 0, info["duration"])
         thumb_key = ckey(clip.id, f"cover-{version}.jpg")
         ffmpeg.thumbnail(storage.path(out_key), cover_t, storage.path(thumb_key), width=540)
         srt_key = ckey(clip.id, f"captions-{version}.srt")

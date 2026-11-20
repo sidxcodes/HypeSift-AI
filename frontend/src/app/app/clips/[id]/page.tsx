@@ -20,6 +20,7 @@ import { Assistant } from "@/components/Assistant";
 import { useSession } from "@/components/AppShell";
 import { Preview, type PreviewHandle } from "@/components/editor/Preview";
 import { Timeline } from "@/components/editor/Timeline";
+import { TitleEditor } from "@/components/editor/TitleEditor";
 import { PublishPanel } from "@/components/PublishPanel";
 import { useToast } from "@/components/toast";
 import { Badge, Button, Card, cx, Field, Input, Progress, Segmented, Select, Skeleton, Switch } from "@/components/ui";
@@ -265,6 +266,15 @@ export default function EditorPage() {
               style={style}
               onTime={onTime}
               onCropDrag={(x, y) => setEdits((e) => ({ ...e, crop: { ...e.crop, x, y } }), "crop-drag")}
+              onTitleMove={
+                tool === "text" && s.edits.overlays.some((o) => o.kind === "title")
+                  ? (pos) =>
+                      setEdits(
+                        (e) => ({ ...e, overlays: e.overlays.map((o) => (o.kind === "title" ? { ...o, pos } : o)) }),
+                        "title-drag",
+                      )
+                  : undefined
+              }
             />
           ) : (
             <div className="grid flex-1 place-items-center text-sm text-muted">Source preview unavailable.</div>
@@ -447,21 +457,18 @@ export default function EditorPage() {
                   }, `ov-${kind}`);
                 return (
                   <>
-                    <Switch checked={!!title} onChange={(v) => setOv("title", v ? { text: s.title } : null)} label="Hook title overlay" />
+                    <Switch
+                      checked={!!title}
+                      onChange={(v) => setOv("title", v ? { text: s.title, style: "impact", start: 0, end: 3 } : null)}
+                      label="Hook title"
+                    />
                     {title && (
-                      <>
-                        <Field label="Title text">
-                          <Input value={title.text} onChange={(e) => setOv("title", { text: e.target.value })} maxLength={90} />
-                        </Field>
-                        <div className="grid grid-cols-2 gap-3">
-                          <Field label={`Show for · ${(title.end ?? 3) - title.start}s`}>
-                            <input type="range" min={1} max={Math.max(2, Math.floor(s.end - s.start))} step={0.5} value={(title.end ?? 3) - title.start} onChange={(e) => setOv("title", { end: title.start + Number(e.target.value) })} className="w-full" aria-label="Title duration" />
-                          </Field>
-                          <Field label="Label colour">
-                            <input type="color" value={title.bg ?? "#c6f432"} onChange={(e) => setOv("title", { bg: e.target.value })} className="h-10 w-full cursor-pointer rounded-xl border border-border bg-surface" aria-label="Title background colour" />
-                          </Field>
-                        </div>
-                      </>
+                      <TitleEditor
+                        ov={title}
+                        clipLength={s.end - s.start}
+                        thumb={clip.thumb_url}
+                        onChange={(patch) => setOv("title", patch as Record<string, unknown>)}
+                      />
                     )}
                     <Switch checked={!!mark} onChange={(v) => setOv("watermark", v ? { text: "@yourhandle" } : null)} label="Watermark" />
                     {mark && (

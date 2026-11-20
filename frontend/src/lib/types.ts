@@ -100,7 +100,7 @@ export type Chunk = { s: number; e: number; text: string; words: { w: string; s:
 export type Overlay = { kind: "title" | "watermark"; text: string; start: number; end?: number; color?: string; bg?: string
   style?: TitleStyle;
   pos?: Pos | null;
-};
+} & Partial<import("./title").TitleSpec>;
 
 export type Edits = {
   aspect: "9:16" | "1:1" | "4:5" | "16:9";

@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     whisper_device: str = "auto"  # auto | cpu | cuda
     whisper_compute_type: str = "auto"
 
-    # --- video-site links (YouTube, Vimeo, TikTok â€¦) via the free yt-dlp ---------------
+    # --- video-site links (YouTube, Vimeo, TikTok ...) via the free yt-dlp ---------------
     ytdlp_enabled: bool = True
     ytdlp_max_height: int = 1080
     # Optional: read cookies from your own browser ("edge", "chrome", "firefox") so videos that

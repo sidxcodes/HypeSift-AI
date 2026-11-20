@@ -1,6 +1,8 @@
 "use client";
 
-import type { CaptionStyle, Chunk, Effect, Overlay, Pos, TitleStyle, Transition } from "@/lib/types";
+import { cx } from "./ui";
+import { resolveTitle, titleLines, wordColors } from "@/lib/title";
+import type { CaptionStyle, Chunk, Effect, Overlay, Pos, Transition } from "@/lib/types";
 
 // libass sizes text by the font's (winAscent + winDescent); CSS sizes by the em box.
 // Dividing by this ratio makes the browser preview match the burned-in export.
@@ -65,26 +67,6 @@ export function textStyle(style: CaptionStyle, scale: number, effect: Effect = "
   };
 }
 
-const ACCENTS = ["#FFD60A", "#FF3B30", "#34C759", "#3FA9FF"];
-const STOP = new Set(
-  "a an the and or but so to of in on at for with is are was were be been it its this that i you he she we they my your our their me him her us them do does did have has had not no just very really what how why when who where which than then there here about from into over out up down as by if".split(" "),
-);
-
-/** Which words the impact title colours: numbers and long words (mirrors captions.py _key_words). */
-function keyIdx(words: string[]): Set<number> {
-  const clean = words.map((w) => w.toLowerCase().replace(/[^a-z0-9$%]/g, ""));
-  const pick = new Set(clean.flatMap((c, i) => (c && /\d/.test(c) && !STOP.has(c) ? [i] : [])));
-  const rest = clean
-    .map((c, i) => [c, i] as const)
-    .filter(([c, i]) => c && !STOP.has(c) && !pick.has(i))
-    .sort((a, b) => b[0].length - a[0].length);
-  for (const [, i] of rest) {
-    if (pick.size >= 2) break;
-    pick.add(i);
-  }
-  return new Set([...pick].sort((a, b) => a - b).slice(0, 3));
-}
-
 /** Anchor a free {x,y} like the renderer: left/right thirds hug that edge. */
 export function posStyle(pos: Pos, margin: number): React.CSSProperties {
   const x = pos.x * 100;
@@ -94,98 +76,105 @@ export function posStyle(pos: Pos, margin: number): React.CSSProperties {
   return { left: `${x}%`, top: y, transform: "translate(-50%, -50%)", textAlign: "center" };
 }
 
-/** The hook title card, drawn like the export (impact / box / neon / minimal). */
-export function TitleCard({ text, design = "impact", scale, age = 1, accent }: { text: string; design?: TitleStyle; scale: number; age?: number; accent?: string }) {
-  const pop = Math.min(1, age / 0.3);
-  if (design === "impact") {
-    const words = text.toUpperCase().split(/\s+/);
-    const keys = keyIdx(words);
-    let ci = 0;
-    const s = age < 0.17 ? 1.22 * (age / 0.17) : age < 0.3 ? 1.22 - 0.22 * ((age - 0.17) / 0.13) : 1;
-    return (
-      <span
-        style={{
-          fontFamily: '"HS Luckiest Guy", sans-serif',
-          fontSize: (104 * scale) / 1.226,
-          lineHeight: 1.05,
-          color: "#fff",
-          WebkitTextStroke: `${22 * scale}px #000`,
-          paintOrder: "stroke fill",
-          textShadow: `${5 * scale}px ${5 * scale}px 0 #000`,
-          display: "inline-block",
-          transform: `scale(${s}) rotate(${-2 * (1 - pop)}deg)`,
-          maxWidth: 820 * scale,
-        }}
-      >
-        {words.map((w, i) => (
-          <span key={i} style={{ color: keys.has(i) ? (accent ? [accent, ...ACCENTS] : ACCENTS)[ci++ % 4] : undefined }}>
-            {w}
-            {i < words.length - 1 ? " " : ""}
-          </span>
-        ))}
-      </span>
-    );
+function rgbaHex(hex: string, a: number) {
+  const n = parseInt(hex.replace("#", ""), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+/** The hook title, laid out exactly like the export (captions.title_events): one line per row,
+ * the design's defaults plus every override from the editor. */
+export function TitleCard({
+  ov,
+  scale,
+  age = 1,
+}: {
+  ov: Partial<Overlay> & { text: string };
+  scale: number;
+  age?: number;
+}) {
+  const spec = resolveTitle(ov as Partial<Overlay> & Record<string, unknown>);
+  const lines = titleLines(ov.text, spec);
+  const colors = wordColors(lines, spec);
+  const dur = Math.max(0.3, (ov.end ?? 3) - (ov.start ?? 0));
+  const fs = spec.size * scale;
+  const lineH = fs * spec.line_spacing;
+  // entrance / exit
+  let k = 1;
+  let op = 1;
+  let dy = 0;
+  const a = spec.animation;
+  const exit = a === "fade" || a === "slide_up" ? Math.min(1, (dur - age) / 0.25) : a === "typewriter" ? Math.min(1, (dur - age) / 0.2) : a === "none" ? 1 : Math.min(1, (dur - age) / 0.22);
+  if (a === "pop") k = age < 0.17 ? 1.22 * (age / 0.17) : age < 0.3 ? 1.22 - 0.22 * ((age - 0.17) / 0.13) : 1;
+  if (a === "slam") {
+    k = age < 0.14 ? 1.6 - 0.64 * (age / 0.14) : age < 0.24 ? 0.96 + 0.04 * ((age - 0.14) / 0.1) : 1;
+    op = Math.min(1, age / 0.14);
   }
-  if (design === "box") {
-    return (
-      <span
-        style={{
-          fontFamily: '"HS Archivo Black", sans-serif',
-          fontSize: (76 * scale) / 1.347,
-          lineHeight: 1.3,
-          color: "#101010",
-          background: accent ?? "#FFD60A",
-          padding: `${10 * scale}px ${22 * scale}px`,
-          textTransform: "uppercase",
-          display: "inline-block",
-          boxShadow: `${8 * scale}px ${8 * scale}px 0 rgba(0,0,0,.4)`,
-          transform: `rotate(${-2}deg) scale(${age < 0.14 ? 1.6 - 0.64 * (age / 0.14) : 1})`,
-          opacity: Math.min(1, age / 0.14),
-          maxWidth: 860 * scale,
-        }}
-      >
-        {text}
-      </span>
-    );
+  if (a === "fade") op = Math.min(1, age / 0.25);
+  if (a === "slide_up") {
+    op = Math.min(1, age / 0.2);
+    dy = 56 * scale * Math.max(0, 1 - age / 0.26);
   }
-  if (design === "neon") {
-    const c = accent ?? "#3FA9FF";
-    const flick = age < 0.06 || (age > 0.06 && age < 0.11) ? 0.4 : 1;
-    return (
-      <span
-        style={{
-          fontFamily: '"HS Poppins ExtraBold", sans-serif',
-          fontSize: (100 * scale) / 1.762,
-          lineHeight: 1.15,
-          color: "#fff",
-          textTransform: "uppercase",
-          textShadow: `0 0 ${8 * scale}px ${c}, 0 0 ${22 * scale}px ${c}, 0 0 ${44 * scale}px ${c}`,
-          opacity: flick,
-          display: "inline-block",
-          maxWidth: 860 * scale,
-        }}
-      >
-        {text}
-      </span>
-    );
+  if (a === "flicker") op = age < 0.06 ? age / 0.06 : age < 0.11 ? 0.44 : age < 0.19 ? 0.44 + 0.56 * ((age - 0.11) / 0.08) : 1;
+  op *= Math.max(0, exit);
+  const shadows: string[] = [];
+  if (spec.shadow) shadows.push(`${spec.shadow * scale}px ${spec.shadow * scale}px 0 ${spec.box ? "rgba(0,0,0,.38)" : spec.shadow_color}`);
+  if (spec.glow && !spec.box) {
+    const g = spec.glow * scale;
+    shadows.push(`0 0 ${g * 0.5}px ${spec.glow_color}`, `0 0 ${g}px ${spec.glow_color}`, `0 0 ${g * 2}px ${spec.glow_color}`);
   }
+  let wi = 0;
   return (
-    <span
+    <div
       style={{
-        fontFamily: '"HS Poppins ExtraBold", sans-serif',
-        fontSize: (92 * scale) / 1.762,
-        lineHeight: 1.3,
-        color: "#fff",
-        background: "rgba(0,0,0,.69)",
-        padding: `${8 * scale}px ${20 * scale}px`,
-        display: "inline-block",
-        opacity: Math.min(1, age / 0.25),
-        maxWidth: 860 * scale,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: spec.align === "left" ? "flex-start" : spec.align === "right" ? "flex-end" : "center",
+        transform: `translateY(${dy}px) rotate(${spec.rotation}deg) scale(${Math.max(0, k)})`,
+        opacity: op,
+        whiteSpace: "pre",
       }}
     >
-      {text}
-    </span>
+      {lines.map((line, li) => (
+        <div key={li} style={{ height: lineH, display: "flex", alignItems: "center" }}>
+          <span
+            style={{
+              fontFamily: `"HS ${spec.font}", sans-serif`,
+              fontSize: fs / (EM_RATIO[spec.font] ?? 1.5),
+              lineHeight: 1,
+              color: spec.color,
+              letterSpacing: spec.letter_spacing * scale,
+              WebkitTextStroke: !spec.box && spec.outline ? `${spec.outline * 2 * scale}px ${spec.outline_color}` : undefined,
+              paintOrder: "stroke fill",
+              textShadow: shadows.length ? shadows.join(", ") : undefined,
+              background: spec.box ? rgbaHex(spec.box_color, spec.box_opacity) : undefined,
+              padding: spec.box ? `${spec.box_pad * scale}px` : undefined,
+            }}
+          >
+            {line.split(" ").map((w, j, arr) => {
+              const idx = wi++;
+              const hidden = a === "typewriter" && age < Math.min(dur * 0.6, idx * 0.11);
+              return (
+                <span key={j} style={{ color: colors[idx], visibility: hidden ? "hidden" : undefined }}>
+                  {w}
+                  {j < arr.length - 1 ? " " : ""}
+                </span>
+              );
+            })}
+          </span>
+        </div>
+      ))}
+    </div>
   );
+}
+
+/** Where the title block sits: pos is the anchor (centre / left edge / right edge by alignment). */
+export function titleAnchorStyle(ov: Partial<Overlay>, seam?: number | null): React.CSSProperties {
+  const spec = resolveTitle(ov as Partial<Overlay> & Record<string, unknown>);
+  const dx = spec.align === "left" ? 0.07 : spec.align === "right" ? 0.93 : 0.5;
+  const x = ov.pos?.x ?? dx;
+  const y = ov.pos?.y ?? seam ?? 0.2;
+  const tx = spec.align === "left" ? "0" : spec.align === "right" ? "-100%" : "-50%";
+  return { left: `${x * 100}%`, top: `${y * 100}%`, transform: `translate(${tx}, -50%)` };
 }
 
 /** Static sample for the style picker ("Hey there," with the active word highlighted). */
@@ -201,6 +190,32 @@ export function CaptionSample({ style, scale = 0.24, effect = "none" }: { style:
       ))}
     </span>
   );
+}
+
+/** Drag inside the preview frame; snaps to the centre lines. */
+function startDrag(e: React.PointerEvent<HTMLDivElement>, onMove: (p: Pos) => void) {
+  const frame = (e.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
+  const el = e.currentTarget;
+  el.setPointerCapture(e.pointerId);
+  const box = el.getBoundingClientRect();
+  // offset between the pointer and the block's anchor
+  const ax = el.style.transform.includes("-100%") ? box.right : el.style.transform.includes("translate(0") ? box.left : box.left + box.width / 2;
+  const offX = e.clientX - ax;
+  const offY = e.clientY - (box.top + box.height / 2);
+  const move = (ev: PointerEvent) => {
+    let x = (ev.clientX - offX - frame.left) / frame.width;
+    let y = (ev.clientY - offY - frame.top) / frame.height;
+    if (Math.abs(x - 0.5) < 0.025) x = 0.5;
+    if (Math.abs(y - 0.5) < 0.02) y = 0.5;
+    onMove({ x: +Math.min(1, Math.max(0, x)).toFixed(3), y: +Math.min(0.97, Math.max(0.03, y)).toFixed(3) });
+  };
+  const up = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+  e.preventDefault();
 }
 
 /** Live caption + overlay layer drawn over the preview at time t (seconds, clip-relative). */
@@ -219,6 +234,8 @@ export function CaptionOverlay({
   seam,
   labels,
   progressPos = "bottom",
+  onTitleMove,
+  forceTitle = false,
 }: {
   chunks: Chunk[];
   style: CaptionStyle;
@@ -234,6 +251,10 @@ export function CaptionOverlay({
   seam?: number | null;
   labels?: { top?: string; bottom?: string; enabled?: boolean } | null;
   progressPos?: "top" | "bottom";
+  /** When set, the title can be dragged; called with the new {x, y} (0-1). */
+  onTitleMove?: (p: Pos) => void;
+  /** Show the title even outside its time window (while editing it). */
+  forceTitle?: boolean;
 }) {
   const scale = width / 1080;
   const chunk = enabled ? chunks.find((c) => t >= c.s && t < Math.max(c.e, c.s + 0.2)) : undefined;
@@ -242,7 +263,7 @@ export function CaptionOverlay({
   const pos = onSeam ? { top: `${seam * 100}%`, center: true } : POS[style.position] ?? POS.bottom;
   const ts = textStyle(style, scale, effect);
   const chunkIndex = chunk ? chunks.indexOf(chunk) : -1;
-  const titleOv = (overlays ?? []).filter((o) => o.kind === "title" && o.text && t >= (o.start ?? 0) && t < (o.end ?? 1e9));
+  const titleOv = (overlays ?? []).filter((o) => o.kind === "title" && o.text && (forceTitle || (t >= (o.start ?? 0) && t < (o.end ?? 1e9))));
   const marks = (overlays ?? []).filter((o) => o.kind === "watermark" && o.text);
 
   let content: React.ReactNode = null;
@@ -308,8 +329,18 @@ export function CaptionOverlay({
         <div className={progressPos === "top" ? "absolute top-0 left-0" : "absolute bottom-0 left-0"} style={{ height: Math.max(3, 10 * scale), width: `${Math.min(100, (t / duration) * 100)}%`, background: progressBar }} />
       ) : null}
       {titleOv.map((o, i) => (
-        <div key={i} className="absolute" style={posStyle(o.pos ?? { x: 0.5, y: seam ?? 0.2 }, 50 * scale)}>
-          <TitleCard text={o.text} design={o.style ?? "impact"} scale={scale} age={t - (o.start ?? 0)} />
+        <div
+          key={i}
+          className={cx("absolute", onTitleMove && "pointer-events-auto cursor-move rounded outline-dashed outline-2 outline-transparent hover:outline-white/70")}
+          style={titleAnchorStyle(o, seam)}
+          onPointerDown={onTitleMove ? (e) => startDrag(e, onTitleMove) : undefined}
+          title={onTitleMove ? "Drag to move the title" : undefined}
+        >
+          <TitleCard
+            ov={o}
+            scale={scale}
+            age={forceTitle ? 0.4 : t - (o.start ?? 0)} /* while editing: always fully in */
+          />
         </div>
       ))}
       {marks.map((o, i) => (

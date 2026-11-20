@@ -43,10 +43,12 @@ type Props = {
   style: CaptionStyle;
   onTime: (absT: number) => void;
   onCropDrag?: (x: number, y: number) => void;
+  /** Text tool open: keep the title visible and let it be dragged. */
+  onTitleMove?: (p: { x: number; y: number }) => void;
 };
 
 export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
-  { src, start, end, edits, reframe, chunks, style, onTime, onCropDrag },
+  { src, start, end, edits, reframe, chunks, style, onTime, onCropDrag, onTitleMove },
   ref,
 ) {
   const video = useRef<HTMLVideoElement>(null);
@@ -258,7 +260,10 @@ export const Preview = forwardRef<PreviewHandle, Props>(function Preview(
             enabled={edits.captions.enabled}
             transition={edits.captions.transition}
             effect={edits.captions.effect}
-            progressBar={edits.progress_bar?.enabled ? edits.progress_bar.color ?? "#C6F432" : null}
+            progressBar={edits.progress_bar?.enabled ? edits.progress_bar.color ?? "#FF7A59" : null}
+            progressPos={(edits.progress_bar as { position?: "top" | "bottom" } | undefined)?.position ?? "bottom"}
+            onTitleMove={onTitleMove}
+            forceTitle={!!onTitleMove}
             duration={end - start}
             labels={edits.crop.mode === "compare" || edits.crop.mode === "pair" ? edits.labels : null}
             seam={

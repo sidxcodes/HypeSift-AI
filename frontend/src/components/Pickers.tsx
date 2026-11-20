@@ -92,7 +92,7 @@ export function TitleStylePicker({ value, onChange, bg }: { value: TitleStyle; o
             className="relative grid h-24 place-items-center overflow-hidden bg-[#2b2f45] bg-cover bg-center px-2 text-center"
             style={bg ? { backgroundImage: `linear-gradient(rgba(0,0,0,.25),rgba(0,0,0,.25)),url(${bg})` } : undefined}
           >
-            <TitleCard text="GTA 5 vs GTA 6 physics" design={t.id} scale={0.21} />
+            <TitleCard ov={{ text: "GTA 5 vs GTA 6 physics", style: t.id, start: 0, end: 99 }} scale={0.21} />
           </div>
           <div className={cx("px-2.5 py-1.5 text-xs font-medium", value === t.id ? "bg-primary text-on-primary" : "bg-surface-2")}>{t.label}</div>
         </button>
